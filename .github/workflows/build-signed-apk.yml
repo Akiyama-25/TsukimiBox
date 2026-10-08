@@ -153,18 +153,51 @@ EOF
             "$APKSIGNER" verify --verbose "$apk" || true
           done
 
-      - name: Collect Output APKs
+      - name: Categorize APKs by Architecture
         run: |
-          mkdir -p signed_apks
-          find app/build/outputs/apk -name "*.apk" -exec cp {} signed_apks/ \;
-          ls -lh signed_apks/
+          mkdir -p dist/arm64-v8a dist/armeabi-v7a dist/x86_64 dist/x86 dist/universal
+          find app/build/outputs/apk -name "*arm64-v8a*.apk" -exec cp {} dist/arm64-v8a/ \;
+          find app/build/outputs/apk -name "*armeabi-v7a*.apk" -exec cp {} dist/armeabi-v7a/ \;
+          find app/build/outputs/apk -name "*x86_64*.apk" -exec cp {} dist/x86_64/ \;
+          find app/build/outputs/apk -name "*x86*.apk" ! -name "*x86_64*.apk" -exec cp {} dist/x86/ \;
+          find app/build/outputs/apk -name "*universal*.apk" -exec cp {} dist/universal/ \;
+          echo "=== Categorized APKs ==="
+          ls -R dist/
 
-      - name: Upload Signed APKs
+      - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v4
         with:
-          name: TsukimiBox-Signed-APKs
-          path: signed_apks/*.apk
-          if-no-files-found: error
+          name: TsukimiBox-arm64-v8a
+          path: dist/arm64-v8a/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload armeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-armeabi-v7a
+          path: dist/armeabi-v7a/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-x86_64
+          path: dist/x86_64/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload x86 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-x86
+          path: dist/x86/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload Universal APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-universal
+          path: dist/universal/*.apk
+          if-no-files-found: ignore
 
       - name: Upload Keystore Artifact
         if: ${{ inputs.save_keystore != false }}
