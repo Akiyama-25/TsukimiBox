@@ -110,12 +110,12 @@ jobs:
           # Prepare keystore backup artifact directory
           mkdir -p keystore_backup
           cp release.keystore keystore_backup/
-          cat <<EOF > keystore_backup/credentials.txt
-Keystore File: release.keystore
-Alias: ${ALIAS_NAME}
-Keystore Password: ${KEYSTORE_PASS}
-Key Password: ${ALIAS_PASS}
-EOF
+          {
+            echo "Keystore File: release.keystore"
+            echo "Alias: ${ALIAS_NAME}"
+            echo "Keystore Password: ${KEYSTORE_PASS}"
+            echo "Key Password: ${ALIAS_PASS}"
+          } > keystore_backup/credentials.txt
 
       - name: Prepare Assets (GeoIP / GeoSite)
         run: |
@@ -133,7 +133,8 @@ EOF
         env:
           BUILD_PLUGIN: none
         run: |
-          FLAVOR="${{ inputs.flavor || 'oss' }}"
+          FLAVOR="${{ inputs.flavor }}"
+          FLAVOR="${FLAVOR:-oss}"
           if [ "$FLAVOR" = "preview" ]; then
             TASK="assemblePreviewRelease"
           else
@@ -200,7 +201,7 @@ EOF
           if-no-files-found: ignore
 
       - name: Upload Keystore Artifact
-        if: ${{ inputs.save_keystore != false }}
+        if: inputs.save_keystore != false
         uses: actions/upload-artifact@v4
         with:
           name: TsukimiBox-Signing-Keystore
