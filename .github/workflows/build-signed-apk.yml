@@ -1,0 +1,174 @@
+name: Build Signed APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "Build Flavor"
+        required: true
+        default: "oss"
+        type: choice
+        options:
+          - "oss"
+          - "preview"
+      save_keystore:
+        description: "Upload Keystore as Artifact (for app updates)"
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Signed APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.25
+
+      - name: Setup Android NDK & SDK Path
+        run: |
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -name "25.*" 2>/dev/null | head -n 1)
+          if [ -z "$NDK_PATH" ]; then
+            NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -type d 2>/dev/null | tail -n 1)
+          fi
+          echo "ndk.dir=${NDK_PATH}" >> local.properties
+          echo "Using NDK: ${NDK_PATH}"
+
+      - name: LibCore Status Check
+        run: |
+          find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
+          git ls-files libcore | xargs cat | sha1sum > libcore_status
+
+      - name: Cache LibCore Native AAR
+        id: cache-libcore
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libcore.aar
+          key: libcore-${{ hashFiles('buildScript/**', 'libcore/**', 'golang_status', 'libcore_status') }}
+
+      - name: Build LibCore Native Core
+        if: steps.cache-libcore.outputs.cache-hit != 'true'
+        run: |
+          ./run lib core
+
+      - name: Generate Signing Keystore
+        id: keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using existing keystore from secrets..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+            KEYSTORE_PASS="${{ secrets.KEYSTORE_PASS }}"
+            ALIAS_NAME="${{ secrets.ALIAS_NAME }}"
+            ALIAS_PASS="${{ secrets.ALIAS_PASS }}"
+          else
+            echo "Generating new release keystore automatically via keytool..."
+            KEYSTORE_PASS="tsukimi_${RANDOM}_${RANDOM}"
+            ALIAS_NAME="tsukimibox"
+            ALIAS_PASS="${KEYSTORE_PASS}"
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias "${ALIAS_NAME}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "${KEYSTORE_PASS}" \
+              -keypass "${ALIAS_PASS}" \
+              -dname "CN=TsukimiBox, OU=Release, O=TsukimiBox, L=Tokyo, ST=Tokyo, C=JP"
+          fi
+
+          echo "KEYSTORE_PASS=${KEYSTORE_PASS}" >> local.properties
+          echo "ALIAS_NAME=${ALIAS_NAME}" >> local.properties
+          echo "ALIAS_PASS=${ALIAS_PASS}" >> local.properties
+
+          echo "KEYSTORE_PASS=${KEYSTORE_PASS}" >> $GITHUB_ENV
+          echo "ALIAS_NAME=${ALIAS_NAME}" >> $GITHUB_ENV
+          echo "ALIAS_PASS=${ALIAS_PASS}" >> $GITHUB_ENV
+
+          # Prepare keystore backup artifact directory
+          mkdir -p keystore_backup
+          cp release.keystore keystore_backup/
+          cat <<EOF > keystore_backup/credentials.txt
+Keystore File: release.keystore
+Alias: ${ALIAS_NAME}
+Keystore Password: ${KEYSTORE_PASS}
+Key Password: ${ALIAS_PASS}
+EOF
+
+      - name: Prepare Assets (GeoIP / GeoSite)
+        run: |
+          ./run init action gradle
+
+      - name: Gradle Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build Signed APK
+        env:
+          BUILD_PLUGIN: none
+        run: |
+          FLAVOR="${{ inputs.flavor || 'oss' }}"
+          if [ "$FLAVOR" = "preview" ]; then
+            TASK="assemblePreviewRelease"
+          else
+            TASK="assembleOssRelease"
+          fi
+          echo "Running ./gradlew app:${TASK}..."
+          ./gradlew "app:${TASK}"
+
+      - name: Verify APK Signatures
+        run: |
+          echo "=== Verifying APK Signatures ==="
+          APKSIGNER=$(find ${ANDROID_HOME}/build-tools -name "apksigner" | sort -V | tail -n 1)
+          echo "Using apksigner: ${APKSIGNER}"
+          find app/build/outputs/apk -name "*.apk" | while read -r apk; do
+            echo "----------------------------------------"
+            echo "Checking: $apk"
+            "$APKSIGNER" verify --verbose "$apk" || true
+          done
+
+      - name: Collect Output APKs
+        run: |
+          mkdir -p signed_apks
+          find app/build/outputs/apk -name "*.apk" -exec cp {} signed_apks/ \;
+          ls -lh signed_apks/
+
+      - name: Upload Signed APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-Signed-APKs
+          path: signed_apks/*.apk
+          if-no-files-found: error
+
+      - name: Upload Keystore Artifact
+        if: ${{ inputs.save_keystore != false }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-Signing-Keystore
+          path: keystore_backup/

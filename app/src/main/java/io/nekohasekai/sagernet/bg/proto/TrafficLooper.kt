@@ -6,6 +6,7 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager
 import io.nekohasekai.sagernet.fmt.TAG_BYPASS
 import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
@@ -23,6 +24,7 @@ class TrafficLooper
 
     suspend fun stop() {
         job?.cancel()
+        TrafficMonitorManager.flush()
         // finally traffic post
         if (!DataStore.profileTrafficStatistics) return
         val traffic = mutableMapOf<Long, TrafficData>()
@@ -131,8 +133,25 @@ class TrafficLooper
                 proxy.box.setV2rayStats(tags.joinToString("\n"))
             }
 
-            trafficUpdater.updateAll()
+            val diffs = trafficUpdater.updateAll()
             if (!sc.isActive) return
+
+            var deltaRxProxy = 0L
+            var deltaTxProxy = 0L
+            var deltaRxDirect = 0L
+            var deltaTxDirect = 0L
+            diffs.forEach { (tag, diff) ->
+                if (tag == TAG_BYPASS) {
+                    deltaRxDirect += diff.rx
+                    deltaTxDirect += diff.tx
+                } else {
+                    deltaRxProxy += diff.rx
+                    deltaTxProxy += diff.tx
+                }
+            }
+            if (deltaRxProxy > 0 || deltaTxProxy > 0 || deltaRxDirect > 0 || deltaTxDirect > 0) {
+                TrafficMonitorManager.onTrafficDelta(deltaRxProxy, deltaTxProxy, deltaRxDirect, deltaTxDirect)
+            }
 
             // add all non-bypass to "main"
             var mainTxRate = 0L

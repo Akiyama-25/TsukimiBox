@@ -579,4 +579,31 @@
     <string name="minimize">Minimize</string>
     <string name="app_list_permission_denied">Unable to read installed apps.\nThis is usually because the system has restricted app read permissions.\nPlease grant permissions in the system settings.</string>
     <string name="open_app_settings">Open System Settings</string>
+
+    <!-- Traffic Monitor -->
+    <string name="menu_traffic_monitor">Traffic Monitor</string>
+    <string name="traffic_monitor_fifteen_minutes">Every 15 Min (3h)</string>
+    <string name="traffic_monitor_three_hours">Every 3 Hours (24h)</string>
+    <string name="traffic_monitor_daily">Daily</string>
+    <string name="traffic_monitor_weekly">This Week</string>
+    <string name="traffic_monitor_drill_down_back">Return</string>
+    <string name="traffic_monitor_chart_title">Traffic Trend</string>
+    <string name="traffic_monitor_chart_hint">Tap bar to drill down</string>
+    <string name="traffic_monitor_overview_title">Traffic Overview</string>
+    <string name="traffic_monitor_total">Total Traffic</string>
+    <string name="traffic_monitor_download">Download</string>
+    <string name="traffic_monitor_upload">Upload</string>
+    <string name="traffic_monitor_breakdown_title">Period Details</string>
+    <string name="traffic_monitor_empty_hint">No traffic records</string>
+    <string name="traffic_monitor_today">Today</string>
+    <string name="traffic_monitor_mon">Mon</string>
+    <string name="traffic_monitor_tue">Tue</string>
+    <string name="traffic_monitor_wed">Wed</string>
+    <string name="traffic_monitor_thu">Thu</string>
+    <string name="traffic_monitor_fri">Fri</string>
+    <string name="traffic_monitor_sat">Sat</string>
+    <string name="traffic_monitor_sun">Sun</string>
+    <string name="traffic_monitor_clear">Clear Monitor Records</string>
+    <string name="traffic_monitor_clear_confirm">Are you sure you want to clear all traffic monitor records?</string>
+    <string name="action_refresh">Refresh</string>
 </resources>

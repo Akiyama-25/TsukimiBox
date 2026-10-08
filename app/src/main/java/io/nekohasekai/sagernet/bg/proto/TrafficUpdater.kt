@@ -48,7 +48,7 @@ class TrafficUpdater(
         )
     }
 
-    suspend fun updateAll() {
+    suspend fun updateAll(): Map<String, TrafficLooperData> {
         val updated = mutableMapOf<String, TrafficLooperData>() // diffs
         items.forEach { item ->
             if (item.ignore) return@forEach
@@ -66,5 +66,6 @@ class TrafficUpdater(
         }
 //        Logs.d(JavaUtil.gson.toJson(items))
 //        Logs.d(JavaUtil.gson.toJson(updated))
+        return updated
     }
 }
