@@ -59,7 +59,7 @@ jobs:
 
       - name: LibCore Status Check
         run: |
-          find buildScript libcore/*.sh | xargs cat | sha1sum > golang_status
+          find buildScript libcore/*.sh -type f 2>/dev/null | xargs cat 2>/dev/null | sha1sum > golang_status
           git ls-files libcore | xargs cat | sha1sum > libcore_status
 
       - name: Cache LibCore Native AAR
@@ -67,7 +67,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/libs/libcore.aar
-          key: libcore-${{ hashFiles('buildScript/**', 'libcore/**', 'golang_status', 'libcore_status') }}
+          key: libcore-${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
 
       - name: Build LibCore Native Core
         if: steps.cache-libcore.outputs.cache-hit != 'true'
