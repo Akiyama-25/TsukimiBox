@@ -74,21 +74,63 @@ jobs:
         run: |
           ./run lib core
 
-      - name: Generate Signing Keystore
+      - name: Restore Signing Keystore Cache
+        id: cache-signing-keystore
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: tsukimibox-signing-keystore-v1
+
+      - name: Setup Signing Keystore
         id: keystore
+        env:
+          SECRET_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          SECRET_ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          SECRET_ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
         run: |
-          rm -f release.keystore
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Using existing keystore from secrets..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
-            KEYSTORE_PASS="${{ secrets.KEYSTORE_PASS }}"
-            ALIAS_NAME="${{ secrets.ALIAS_NAME }}"
-            ALIAS_PASS="${{ secrets.ALIAS_PASS }}"
+          echo "=== Setting up Signing Keystore ==="
+          mkdir -p .signing_cache keystore_backup
+
+          LEGACY_HASH="c49f0d17b35b8e6620a20eced4b8a14274a3050592543e6a67aa7cc52bca1599"
+          if [ -f release.keystore ]; then
+            CURRENT_HASH=$(sha256sum release.keystore | awk '{print $1}')
+            if [ "$CURRENT_HASH" = "$LEGACY_HASH" ]; then
+              echo "Detected legacy upstream keystore with unknown password, removing..."
+              rm -f release.keystore
+            fi
+          fi
+
+          DEFAULT_KEYSTORE_PASS="tsukimibox_release_2026"
+          DEFAULT_ALIAS_NAME="tsukimibox"
+          DEFAULT_ALIAS_PASS="tsukimibox_release_2026"
+
+          if [ -n "$SECRET_KEYSTORE_BASE64" ]; then
+            echo "Priority 1: Restoring keystore from GitHub Secrets..."
+            echo "$SECRET_KEYSTORE_BASE64" | base64 -d > release.keystore
+            KEYSTORE_PASS="${SECRET_KEYSTORE_PASS:-$DEFAULT_KEYSTORE_PASS}"
+            ALIAS_NAME="${SECRET_ALIAS_NAME:-$DEFAULT_ALIAS_NAME}"
+            ALIAS_PASS="${SECRET_ALIAS_PASS:-$KEYSTORE_PASS}"
+          elif [ -f .signing_cache/release.keystore ]; then
+            echo "Priority 2: Restoring persistent keystore from Actions Cache..."
+            cp .signing_cache/release.keystore release.keystore
+            if [ -f .signing_cache/credentials.env ]; then
+              source .signing_cache/credentials.env
+            else
+              KEYSTORE_PASS="$DEFAULT_KEYSTORE_PASS"
+              ALIAS_NAME="$DEFAULT_ALIAS_NAME"
+              ALIAS_PASS="$DEFAULT_ALIAS_PASS"
+            fi
+          elif [ -f release.keystore ]; then
+            echo "Priority 3: Using pre-existing release.keystore in workspace..."
+            KEYSTORE_PASS="${SECRET_KEYSTORE_PASS:-$DEFAULT_KEYSTORE_PASS}"
+            ALIAS_NAME="${SECRET_ALIAS_NAME:-$DEFAULT_ALIAS_NAME}"
+            ALIAS_PASS="${SECRET_ALIAS_PASS:-$KEYSTORE_PASS}"
           else
-            echo "Generating new release keystore automatically via keytool..."
-            KEYSTORE_PASS="tsukimi_${RANDOM}_${RANDOM}"
-            ALIAS_NAME="tsukimibox"
-            ALIAS_PASS="${KEYSTORE_PASS}"
+            echo "Priority 4: Generating persistent baseline release.keystore..."
+            KEYSTORE_PASS="$DEFAULT_KEYSTORE_PASS"
+            ALIAS_NAME="$DEFAULT_ALIAS_NAME"
+            ALIAS_PASS="$DEFAULT_ALIAS_PASS"
             keytool -genkeypair -v \
               -keystore release.keystore \
               -alias "${ALIAS_NAME}" \
@@ -100,6 +142,15 @@ jobs:
               -dname "CN=TsukimiBox, OU=Release, O=TsukimiBox, L=Tokyo, ST=Tokyo, C=JP"
           fi
 
+          # Synchronize active keystore and credentials to cache
+          cp release.keystore .signing_cache/release.keystore
+          {
+            echo "KEYSTORE_PASS=${KEYSTORE_PASS}"
+            echo "ALIAS_NAME=${ALIAS_NAME}"
+            echo "ALIAS_PASS=${ALIAS_PASS}"
+          } > .signing_cache/credentials.env
+
+          # Populate local.properties and environment variables for Gradle
           echo "KEYSTORE_PASS=${KEYSTORE_PASS}" >> local.properties
           echo "ALIAS_NAME=${ALIAS_NAME}" >> local.properties
           echo "ALIAS_PASS=${ALIAS_PASS}" >> local.properties
@@ -108,15 +159,22 @@ jobs:
           echo "ALIAS_NAME=${ALIAS_NAME}" >> $GITHUB_ENV
           echo "ALIAS_PASS=${ALIAS_PASS}" >> $GITHUB_ENV
 
-          # Prepare keystore backup artifact directory
-          mkdir -p keystore_backup
+          # Prepare keystore backup artifact and base64 export
           cp release.keystore keystore_backup/
+          base64 -w 0 release.keystore > keystore_backup/keystore_base64.txt
           {
             echo "Keystore File: release.keystore"
             echo "Alias: ${ALIAS_NAME}"
             echo "Keystore Password: ${KEYSTORE_PASS}"
             echo "Key Password: ${ALIAS_PASS}"
+            echo ""
+            echo "================================================================================"
+            echo "Notice: To permanently fix signatures across all CI runners and clean caches:"
+            echo "1. Copy the content of 'keystore_base64.txt' into GitHub Repository Secret 'KEYSTORE_BASE64'."
+            echo "2. Add 'KEYSTORE_PASS', 'ALIAS_NAME', and 'ALIAS_PASS' to Secrets if customized."
+            echo "================================================================================"
           } > keystore_backup/credentials.txt
+          echo "Signing Keystore configuration completed successfully."
 
       - name: Prepare Assets (GeoIP / GeoSite)
         run: |
@@ -146,13 +204,13 @@ jobs:
 
       - name: Verify APK Signatures
         run: |
-          echo "=== Verifying APK Signatures ==="
+          echo "=== Verifying APK Signatures & Printing Certificate Fingerprints ==="
           APKSIGNER=$(find ${ANDROID_HOME}/build-tools -name "apksigner" | sort -V | tail -n 1)
           echo "Using apksigner: ${APKSIGNER}"
           find app/build/outputs/apk -name "*.apk" | while read -r apk; do
             echo "----------------------------------------"
             echo "Checking: $apk"
-            "$APKSIGNER" verify --verbose "$apk" || true
+            "$APKSIGNER" verify --verbose --print-certs "$apk" || true
           done
 
       - name: Categorize APKs by Architecture
@@ -202,7 +260,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload Keystore Artifact
-        if: inputs.save_keystore != false
+        if: always() && steps.keystore.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.save_keystore != false)
         uses: actions/upload-artifact@v4
         with:
           name: TsukimiBox-Signing-Keystore
