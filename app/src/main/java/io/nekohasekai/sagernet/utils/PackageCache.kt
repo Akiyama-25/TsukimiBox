@@ -86,7 +86,15 @@ object PackageCache {
     fun loadLabel(packageName: String): String {
         var label = labelMap[packageName]
         if (label != null) return label
-        val info = installedApps[packageName] ?: return packageName
+        val info = try {
+            if (::installedApps.isInitialized) installedApps[packageName] else null
+        } catch (_: Exception) {
+            null
+        } ?: try {
+            app.packageManager.getApplicationInfo(packageName, 0)
+        } catch (_: Exception) {
+            null
+        } ?: return packageName
         label = info.loadLabel(app.packageManager).toString()
         labelMap[packageName] = label
         return label

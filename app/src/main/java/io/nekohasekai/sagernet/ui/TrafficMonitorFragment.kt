@@ -5,6 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.format.Formatter
@@ -24,6 +26,7 @@ import io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager
 import io.nekohasekai.sagernet.databinding.ItemTrafficAppBinding
 import io.nekohasekai.sagernet.databinding.ItemTrafficPeriodBinding
 import io.nekohasekai.sagernet.databinding.LayoutTrafficMonitorBinding
+import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.utils.PackageCache
@@ -70,6 +73,13 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         val tx: Long,
         val total: Long,
     )
+
+    private data class AppMeta(
+        val name: String,
+        val icon: Drawable?,
+    )
+
+    private val appMetaCache = HashMap<String, AppMeta>()
 
     private lateinit var binding: LayoutTrafficMonitorBinding
     private val drillStack = Stack<DrillState>()
@@ -308,19 +318,15 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
 
             // Query App Traffic breakdown
             val appSummaries = queryAppTrafficSummaries(now)
-            val pm = requireContext().packageManager
+            val ctx = context ?: app
+            val pm = ctx.packageManager
             val appDisplayItems = appSummaries.map { summary ->
-                val label = PackageCache.loadLabel(summary.packageName)
-                val icon = try {
-                    PackageCache.installedApps[summary.packageName]?.loadIcon(pm)
-                } catch (_: Exception) {
-                    null
-                }
+                val meta = resolveAppMeta(pm, summary.packageName, summary.uid)
                 AppDisplayItem(
                     packageName = summary.packageName,
                     uid = summary.uid,
-                    name = label,
-                    icon = icon,
+                    name = meta.name,
+                    icon = meta.icon,
                     rx = summary.rxProxy,
                     tx = summary.txProxy,
                     total = summary.total,
@@ -379,6 +385,57 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
             AppSortMode.PACKAGE -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.packageName })
             AppSortMode.UID -> items.sortedBy { it.uid }
         }
+    }
+
+    private fun resolveAppMeta(pm: PackageManager, packageName: String, uid: Int): AppMeta {
+        val cached = appMetaCache[packageName]
+        if (cached != null) return cached
+
+        var targetPkg = packageName
+        var appInfo: ApplicationInfo? = null
+
+        // If package name is a placeholder like "uid_10345", resolve through PackageManager getPackagesForUid
+        if (targetPkg.startsWith("uid_") || targetPkg.isBlank()) {
+            val resolved = try {
+                pm.getPackagesForUid(uid)?.firstOrNull()
+            } catch (_: Exception) {
+                null
+            }
+            if (!resolved.isNullOrEmpty()) {
+                targetPkg = resolved
+            }
+        }
+
+        // Query PackageManager directly for ApplicationInfo
+        try {
+            appInfo = pm.getApplicationInfo(targetPkg, 0)
+        } catch (_: Exception) {
+            try {
+                PackageCache.awaitLoadSync()
+                appInfo = PackageCache.installedApps[targetPkg]
+            } catch (_: Exception) {
+            }
+        }
+
+        val resolvedLabel = try {
+            appInfo?.loadLabel(pm)?.toString()
+        } catch (_: Exception) {
+            null
+        } ?: PackageCache.loadLabel(targetPkg).takeIf { it != targetPkg }
+          ?: if (targetPkg.startsWith("uid_")) "UID $uid" else targetPkg
+
+        val resolvedIcon = try {
+            appInfo?.loadIcon(pm)
+        } catch (_: Exception) {
+            null
+        }
+
+        val meta = AppMeta(name = resolvedLabel, icon = resolvedIcon)
+        appMetaCache[packageName] = meta
+        if (targetPkg != packageName) {
+            appMetaCache[targetPkg] = meta
+        }
+        return meta
     }
 
     private fun queryAppTrafficSummaries(now: Long): List<AppTrafficSummary> {
