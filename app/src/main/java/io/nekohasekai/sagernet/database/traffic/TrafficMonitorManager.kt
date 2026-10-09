@@ -30,28 +30,69 @@ object TrafficMonitorManager {
         var txProxy: Long,
     )
 
+    data class UidConnectionStat(
+        var lastSeen: Long,
+        var count: Int,
+    )
+
     private val pendingAppTraffic = mutableMapOf<String, AppPendingDelta>()
-    private val recentActiveUids = Collections.synchronizedMap(LinkedHashMap<Int, Long>())
+    private val recentUidStats = Collections.synchronizedMap(LinkedHashMap<Int, UidConnectionStat>())
 
     fun getSlotTimestamp(timeMs: Long): Long = timeMs - (timeMs % SLOT_DURATION_MS)
 
     fun recordUidConnection(uid: Int) {
-        if (uid > 0) {
-            recentActiveUids[uid] = System.currentTimeMillis()
+        if (uid <= 1000) return
+        val now = System.currentTimeMillis()
+        synchronized(recentUidStats) {
+            val stat = recentUidStats.getOrPut(uid) { UidConnectionStat(now, 0) }
+            stat.lastSeen = now
+            stat.count = (stat.count + 1).coerceAtMost(500)
+        }
+    }
+
+    fun getCandidateUidWeights(
+        excludeUid: Int,
+        withinMs: Long = 15000L,
+        maxFallbackMs: Long = 300000L
+    ): Map<Int, Double> {
+        val now = System.currentTimeMillis()
+        synchronized(recentUidStats) {
+            val it = recentUidStats.entries.iterator()
+            while (it.hasNext()) {
+                val entry = it.next()
+                if (now - entry.value.lastSeen > maxFallbackMs) {
+                    it.remove()
+                }
+            }
+
+            val validEntries = recentUidStats.filter { (uid, _) ->
+                uid != excludeUid && uid > 1000
+            }
+            if (validEntries.isEmpty()) return emptyMap()
+
+            val recentEntries = validEntries.filter { (_, stat) -> now - stat.lastSeen <= withinMs }
+            val targetEntries = if (recentEntries.isNotEmpty()) recentEntries else {
+                val sorted = validEntries.entries.sortedByDescending { it.value.lastSeen }
+                sorted.take(3).associate { it.key to it.value }
+            }
+
+            val result = mutableMapOf<Int, Double>()
+            for ((uid, stat) in targetEntries) {
+                result[uid] = stat.count.coerceAtLeast(1).toDouble()
+                if (stat.count > 1) {
+                    stat.count = (stat.count * 0.9).toInt().coerceAtLeast(1)
+                }
+            }
+            return result
         }
     }
 
     fun getRecentActiveUids(withinMs: Long = 15000L): Set<Int> {
         val now = System.currentTimeMillis()
-        synchronized(recentActiveUids) {
-            val it = recentActiveUids.entries.iterator()
-            while (it.hasNext()) {
-                val entry = it.next()
-                if (now - entry.value > withinMs * 2) {
-                    it.remove()
-                }
-            }
-            return recentActiveUids.filter { now - it.value <= withinMs }.keys.toSet()
+        synchronized(recentUidStats) {
+            return recentUidStats.filter { (uid, stat) ->
+                now - stat.lastSeen <= withinMs && uid > 1000
+            }.keys.toSet()
         }
     }
 
@@ -232,6 +273,7 @@ object TrafficMonitorManager {
                 pendingRxDirect = 0L
                 pendingTxDirect = 0L
                 pendingAppTraffic.clear()
+                recentUidStats.clear()
                 TrafficDatabase.trafficDao.clearAll()
                 TrafficDatabase.appTrafficDao.clearAll()
             }

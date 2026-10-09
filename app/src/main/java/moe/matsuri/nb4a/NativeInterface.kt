@@ -42,9 +42,13 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
     override fun findConnectionOwner(
         ipProto: Int, srcIp: String, srcPort: Int, destIp: String, destPort: Int
     ): Int {
-        val uid = SagerNet.connectivity.getConnectionOwnerUid(
-            ipProto, InetSocketAddress(srcIp, srcPort), InetSocketAddress(destIp, destPort)
-        )
+        val uid = try {
+            SagerNet.connectivity.getConnectionOwnerUid(
+                ipProto, InetSocketAddress(srcIp, srcPort), InetSocketAddress(destIp, destPort)
+            )
+        } catch (_: Throwable) {
+            0
+        }
         if (uid > 0) {
             io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager.recordUidConnection(uid)
         }
@@ -63,7 +67,12 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
             return packageName
         }
 
-        error("unknown uid $uid")
+        val systemPkgs = try {
+            app.packageManager.getPackagesForUid(uid)
+        } catch (_: Throwable) {
+            null
+        }
+        return systemPkgs?.firstOrNull() ?: "uid_$uid"
     }
 
     override fun uidByPackageName(packageName: String): Int {

@@ -1,6 +1,5 @@
 package io.nekohasekai.sagernet.bg.proto
 
-import android.net.TrafficStats
 import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.bg.BaseService
@@ -210,79 +209,33 @@ class TrafficLooper
         }
     }
 
-    private val lastUidRxMap = HashMap<Int, Long>()
-    private val lastUidTxMap = HashMap<Int, Long>()
-
     private fun distributeAppTraffic(deltaRxProxy: Long, deltaTxProxy: Long) {
+        if (deltaRxProxy <= 0 && deltaTxProxy <= 0) return
+
         val myUid = android.os.Process.myUid()
-        val recentUids = TrafficMonitorManager.getRecentActiveUids(15000L).filter { it != myUid && it > 1000 }
+        val candidateWeights = TrafficMonitorManager.getCandidateUidWeights(myUid, 15000L)
+        if (candidateWeights.isEmpty()) return
 
-        // Find candidate UIDs
-        val candidateUids = if (recentUids.isNotEmpty()) {
-            recentUids
-        } else {
-            lastUidRxMap.keys.filter { it != myUid && it > 1000 }
-        }
+        val totalWeight = candidateWeights.values.sum()
+        if (totalWeight <= 0.0) return
 
-        val uidRxDeltas = mutableMapOf<Int, Long>()
-        val uidTxDeltas = mutableMapOf<Int, Long>()
+        val entries = candidateWeights.entries.toList()
+        var remainingRx = deltaRxProxy
+        var remainingTx = deltaTxProxy
 
-        for (uid in candidateUids) {
-            val rxNow = TrafficStats.getUidRxBytes(uid)
-            val txNow = TrafficStats.getUidTxBytes(uid)
-            if (rxNow < 0 || txNow < 0) continue
+        for (i in entries.indices) {
+            val (uid, weight) = entries[i]
+            val isLast = (i == entries.size - 1)
 
-            val lastRx = lastUidRxMap[uid] ?: rxNow
-            val lastTx = lastUidTxMap[uid] ?: txNow
-            lastUidRxMap[uid] = rxNow
-            lastUidTxMap[uid] = txNow
+            val allocatedRx = if (isLast) remainingRx else (deltaRxProxy * (weight / totalWeight)).toLong()
+            val allocatedTx = if (isLast) remainingTx else (deltaTxProxy * (weight / totalWeight)).toLong()
 
-            val diffRx = rxNow - lastRx
-            val diffTx = txNow - lastTx
-            if (diffRx > 0) uidRxDeltas[uid] = diffRx
-            if (diffTx > 0) uidTxDeltas[uid] = diffTx
-        }
+            remainingRx -= allocatedRx
+            remainingTx -= allocatedTx
 
-        // Clean stale UIDs
-        if (lastUidRxMap.size > 200) {
-            val valid = candidateUids.toSet()
-            lastUidRxMap.entries.removeIf { it.key !in valid }
-            lastUidTxMap.entries.removeIf { it.key !in valid }
-        }
-
-        // Distribute RX proxy traffic only
-        if (deltaRxProxy > 0) {
-            val totalUidRx = uidRxDeltas.values.sum()
-            if (totalUidRx > 0) {
-                for ((uid, diffRx) in uidRxDeltas) {
-                    val allocatedRx = (diffRx.toDouble() / totalUidRx.toDouble() * deltaRxProxy).toLong()
-                    if (allocatedRx > 0) {
-                        val pkg = resolvePackageName(uid)
-                        TrafficMonitorManager.onAppTrafficDelta(pkg, uid, allocatedRx, 0L)
-                    }
-                }
-            } else if (candidateUids.isNotEmpty()) {
-                val targetUid = candidateUids.first()
-                val pkg = resolvePackageName(targetUid)
-                TrafficMonitorManager.onAppTrafficDelta(pkg, targetUid, deltaRxProxy, 0L)
-            }
-        }
-
-        // Distribute TX proxy traffic only
-        if (deltaTxProxy > 0) {
-            val totalUidTx = uidTxDeltas.values.sum()
-            if (totalUidTx > 0) {
-                for ((uid, diffTx) in uidTxDeltas) {
-                    val allocatedTx = (diffTx.toDouble() / totalUidTx.toDouble() * deltaTxProxy).toLong()
-                    if (allocatedTx > 0) {
-                        val pkg = resolvePackageName(uid)
-                        TrafficMonitorManager.onAppTrafficDelta(pkg, uid, 0L, allocatedTx)
-                    }
-                }
-            } else if (candidateUids.isNotEmpty()) {
-                val targetUid = candidateUids.first()
-                val pkg = resolvePackageName(targetUid)
-                TrafficMonitorManager.onAppTrafficDelta(pkg, targetUid, 0L, deltaTxProxy)
+            if (allocatedRx > 0 || allocatedTx > 0) {
+                val pkg = resolvePackageName(uid)
+                TrafficMonitorManager.onAppTrafficDelta(pkg, uid, allocatedRx, allocatedTx)
             }
         }
     }
@@ -292,7 +245,11 @@ class TrafficLooper
         if (!pkgs.isNullOrEmpty()) {
             return pkgs.first()
         }
-        val systemPkgs = app.packageManager.getPackagesForUid(uid)
+        val systemPkgs = try {
+            app.packageManager.getPackagesForUid(uid)
+        } catch (_: Exception) {
+            null
+        }
         return systemPkgs?.firstOrNull() ?: "uid_$uid"
     }
 }

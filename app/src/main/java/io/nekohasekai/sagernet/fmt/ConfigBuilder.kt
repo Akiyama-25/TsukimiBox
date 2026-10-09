@@ -239,6 +239,7 @@ fun buildConfig(
 
         // init routing object
         route = RouteOptions().apply {
+            find_process = true
             auto_detect_interface = true
             rules = mutableListOf()
             rule_set = mutableListOf()
