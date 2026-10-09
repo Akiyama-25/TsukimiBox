@@ -140,143 +140,282 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Overview Stats Card -->
+            <!-- View Mode Switch Tab (Time Breakdown vs App Statistics) -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginHorizontal="12dp"
                 android:layout_marginBottom="12dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp"
+                app:cardCornerRadius="10dp"
+                app:cardElevation="1dp"
                 app:strokeWidth="0dp">
 
-                <LinearLayout
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tab_view_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="42dp"
+                    android:background="@android:color/transparent"
+                    app:tabGravity="fill"
+                    app:tabIndicatorColor="?attr/colorPrimary"
+                    app:tabIndicatorFullWidth="false"
+                    app:tabMode="fixed"
+                    app:tabRippleColor="?attr/tabRippleColor"
+                    app:tabSelectedTextColor="?attr/colorPrimary"
+                    app:tabTextColor="?android:attr/textColorSecondary" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Container 1: Time Breakdown View -->
+            <LinearLayout
+                android:id="@+id/layout_time_view_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="visible">
+
+                <!-- Overview Stats Card -->
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:text="@string/traffic_monitor_overview_title"
-                        android:textAppearance="?attr/textAppearanceSubtitle1"
-                        android:textStyle="bold" />
+                    android:layout_marginHorizontal="12dp"
+                    android:layout_marginBottom="12dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp"
+                    app:strokeWidth="0dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal">
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="12dp"
+                            android:text="@string/traffic_monitor_overview_title"
+                            android:textAppearance="?attr/textAppearanceSubtitle1"
+                            android:textStyle="bold" />
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
+                            android:orientation="horizontal">
 
-                            <TextView
-                                android:layout_width="wrap_content"
+                            <LinearLayout
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:text="@string/traffic_monitor_total"
-                                android:textAppearance="?attr/textAppearanceCaption"
-                                android:textColor="?android:attr/textColorSecondary" />
+                                android:layout_weight="1"
+                                android:orientation="vertical">
 
-                            <TextView
-                                android:id="@+id/tv_total_traffic"
-                                android:layout_width="wrap_content"
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_total"
+                                    android:textAppearance="?attr/textAppearanceCaption"
+                                    android:textColor="?android:attr/textColorSecondary" />
+
+                                <TextView
+                                    android:id="@+id/tv_total_traffic"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:textAppearance="?attr/textAppearanceHeadline6"
+                                    android:textColor="?attr/colorPrimary"
+                                    android:textStyle="bold"
+                                    tools:text="1.24 GB" />
+
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:textAppearance="?attr/textAppearanceHeadline6"
-                                android:textColor="?attr/colorPrimary"
-                                android:textStyle="bold"
-                                tools:text="1.24 GB" />
+                                android:layout_weight="1"
+                                android:orientation="vertical">
 
-                        </LinearLayout>
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_download"
+                                    android:textAppearance="?attr/textAppearanceCaption"
+                                    android:textColor="?android:attr/textColorSecondary" />
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
+                                <TextView
+                                    android:id="@+id/tv_rx_traffic"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:textAppearance="?attr/textAppearanceSubtitle1"
+                                    android:textStyle="bold"
+                                    tools:text="1.02 GB" />
 
-                            <TextView
-                                android:layout_width="wrap_content"
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:text="@string/traffic_monitor_download"
-                                android:textAppearance="?attr/textAppearanceCaption"
-                                android:textColor="?android:attr/textColorSecondary" />
+                                android:layout_weight="1"
+                                android:orientation="vertical">
 
-                            <TextView
-                                android:id="@+id/tv_rx_traffic"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:textAppearance="?attr/textAppearanceSubtitle1"
-                                android:textStyle="bold"
-                                tools:text="1.02 GB" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_upload"
+                                    android:textAppearance="?attr/textAppearanceCaption"
+                                    android:textColor="?android:attr/textColorSecondary" />
 
-                        </LinearLayout>
+                                <TextView
+                                    android:id="@+id/tv_tx_traffic"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:textAppearance="?attr/textAppearanceSubtitle1"
+                                    android:textStyle="bold"
+                                    tools:text="225 MB" />
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/traffic_monitor_upload"
-                                android:textAppearance="?attr/textAppearanceCaption"
-                                android:textColor="?android:attr/textColorSecondary" />
-
-                            <TextView
-                                android:id="@+id/tv_tx_traffic"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:textAppearance="?attr/textAppearanceSubtitle1"
-                                android:textStyle="bold"
-                                tools:text="225 MB" />
+                            </LinearLayout>
 
                         </LinearLayout>
 
                     </LinearLayout>
 
-                </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
 
-            </com.google.android.material.card.MaterialCardView>
+                <!-- Detailed Breakdown List Section -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/traffic_monitor_breakdown_title"
+                    android:textAppearance="?attr/textAppearanceSubtitle1"
+                    android:textStyle="bold" />
 
-            <!-- Detailed Breakdown List Section -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="16dp"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="6dp"
-                android:text="@string/traffic_monitor_breakdown_title"
-                android:textAppearance="?attr/textAppearanceSubtitle1"
-                android:textStyle="bold" />
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_breakdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    tools:itemCount="5"
+                    tools:listitem="@layout/item_traffic_period" />
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_breakdown"
+                <TextView
+                    android:id="@+id/tv_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:paddingVertical="32dp"
+                    android:text="@string/traffic_monitor_empty_hint"
+                    android:textAppearance="?attr/textAppearanceBody2"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+            <!-- Container 2: App Statistics View -->
+            <LinearLayout
+                android:id="@+id/layout_app_view_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false"
-                tools:itemCount="5"
-                tools:listitem="@layout/item_traffic_period" />
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
 
-            <TextView
-                android:id="@+id/tv_empty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingVertical="32dp"
-                android:text="@string/traffic_monitor_empty_hint"
-                android:textAppearance="?attr/textAppearanceBody2"
-                android:textColor="?android:attr/textColorSecondary"
-                android:visibility="gone" />
+                <!-- Sort Control Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="12dp"
+                    android:layout_marginBottom="8dp"
+                    app:cardCornerRadius="10dp"
+                    app:cardElevation="1dp"
+                    app:strokeWidth="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="4dp"
+                            android:text="@string/traffic_monitor_app_traffic_title"
+                            android:textAppearance="?attr/textAppearanceSubtitle2"
+                            android:textStyle="bold" />
+
+                        <HorizontalScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:scrollbars="none">
+
+                            <com.google.android.material.chip.ChipGroup
+                                android:id="@+id/chip_group_sort"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                app:singleLine="true"
+                                app:singleSelection="true">
+
+                                <com.google.android.material.chip.Chip
+                                    android:id="@+id/chip_sort_traffic"
+                                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:checked="true"
+                                    android:text="@string/traffic_monitor_sort_traffic" />
+
+                                <com.google.android.material.chip.Chip
+                                    android:id="@+id/chip_sort_name"
+                                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_sort_name" />
+
+                                <com.google.android.material.chip.Chip
+                                    android:id="@+id/chip_sort_package"
+                                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_sort_package" />
+
+                                <com.google.android.material.chip.Chip
+                                    android:id="@+id/chip_sort_uid"
+                                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/traffic_monitor_sort_uid" />
+
+                            </com.google.android.material.chip.ChipGroup>
+
+                        </HorizontalScrollView>
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rv_app_traffic"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    tools:itemCount="5"
+                    tools:listitem="@layout/item_traffic_app" />
+
+                <TextView
+                    android:id="@+id/tv_app_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:paddingVertical="32dp"
+                    android:text="@string/traffic_monitor_app_empty"
+                    android:textAppearance="?attr/textAppearanceBody2"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:visibility="gone" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

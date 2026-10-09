@@ -606,4 +606,12 @@
     <string name="traffic_monitor_clear">Clear Monitor Records</string>
     <string name="traffic_monitor_clear_confirm">Are you sure you want to clear all traffic monitor records?</string>
     <string name="action_refresh">Refresh</string>
+    <string name="traffic_monitor_view_time">Time Breakdown</string>
+    <string name="traffic_monitor_view_app">App Statistics</string>
+    <string name="traffic_monitor_app_traffic_title">App Traffic Breakdown</string>
+    <string name="traffic_monitor_sort_traffic">Traffic</string>
+    <string name="traffic_monitor_sort_name">Name</string>
+    <string name="traffic_monitor_sort_package">Package</string>
+    <string name="traffic_monitor_sort_uid">UID</string>
+    <string name="traffic_monitor_app_empty">No proxied traffic recorded for applications</string>
 </resources>

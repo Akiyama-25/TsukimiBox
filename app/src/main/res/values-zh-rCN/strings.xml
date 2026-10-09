@@ -526,4 +526,12 @@
     <string name="traffic_monitor_clear">清空流量监控数据</string>
     <string name="traffic_monitor_clear_confirm">确定要清空所有流量监控记录吗？</string>
     <string name="action_refresh">刷新</string>
+    <string name="traffic_monitor_view_time">按时间查看</string>
+    <string name="traffic_monitor_view_app">按应用统计</string>
+    <string name="traffic_monitor_app_traffic_title">应用流量排行</string>
+    <string name="traffic_monitor_sort_traffic">按流量</string>
+    <string name="traffic_monitor_sort_name">按名称</string>
+    <string name="traffic_monitor_sort_package">按包名</string>
+    <string name="traffic_monitor_sort_uid">按 UID</string>
+    <string name="traffic_monitor_app_empty">暂无应用代理流量记录</string>
 </resources>

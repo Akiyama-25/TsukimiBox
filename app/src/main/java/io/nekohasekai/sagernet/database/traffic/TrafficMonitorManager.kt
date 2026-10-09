@@ -23,7 +23,37 @@ object TrafficMonitorManager {
     private var lastFlushTime: Long = 0L
     private var lastDateString: String = ""
 
+    data class AppPendingDelta(
+        val packageName: String,
+        val uid: Int,
+        var rxProxy: Long,
+        var txProxy: Long,
+    )
+
+    private val pendingAppTraffic = mutableMapOf<String, AppPendingDelta>()
+    private val recentActiveUids = Collections.synchronizedMap(LinkedHashMap<Int, Long>())
+
     fun getSlotTimestamp(timeMs: Long): Long = timeMs - (timeMs % SLOT_DURATION_MS)
+
+    fun recordUidConnection(uid: Int) {
+        if (uid > 0) {
+            recentActiveUids[uid] = System.currentTimeMillis()
+        }
+    }
+
+    fun getRecentActiveUids(withinMs: Long = 15000L): Set<Int> {
+        val now = System.currentTimeMillis()
+        synchronized(recentActiveUids) {
+            val it = recentActiveUids.entries.iterator()
+            while (it.hasNext()) {
+                val entry = it.next()
+                if (now - entry.value > withinMs * 2) {
+                    it.remove()
+                }
+            }
+            return recentActiveUids.filter { now - it.value <= withinMs }.keys.toSet()
+        }
+    }
 
     fun onTrafficDelta(rxProxy: Long, txProxy: Long, rxDirect: Long, txDirect: Long) {
         if (rxProxy <= 0 && txProxy <= 0 && rxDirect <= 0 && txDirect <= 0) return
@@ -65,6 +95,37 @@ object TrafficMonitorManager {
         }
     }
 
+    fun onAppTrafficDelta(packageName: String, uid: Int, rxProxy: Long, txProxy: Long) {
+        if (rxProxy <= 0 && txProxy <= 0) return
+
+        val now = System.currentTimeMillis()
+        val slot = getSlotTimestamp(now)
+
+        runOnDefaultDispatcher {
+            mutex.withLock {
+                if (currentSlot == 0L) {
+                    currentSlot = slot
+                } else if (currentSlot != slot) {
+                    flushLocked()
+                    currentSlot = slot
+                }
+
+                val key = "$slot:$packageName"
+                val existing = pendingAppTraffic[key]
+                if (existing != null) {
+                    existing.rxProxy += rxProxy
+                    existing.txProxy += txProxy
+                } else {
+                    pendingAppTraffic[key] = AppPendingDelta(packageName, uid, rxProxy, txProxy)
+                }
+
+                if (now - lastFlushTime >= 5000L) {
+                    flushLocked()
+                }
+            }
+        }
+    }
+
     suspend fun flush() {
         mutex.withLock {
             flushLocked()
@@ -73,7 +134,10 @@ object TrafficMonitorManager {
 
     private fun flushLocked() {
         if (currentSlot == 0L) return
-        if (pendingRxProxy == 0L && pendingTxProxy == 0L && pendingRxDirect == 0L && pendingTxDirect == 0L) {
+        val hasSlotTraffic = pendingRxProxy > 0L || pendingTxProxy > 0L || pendingRxDirect > 0L || pendingTxDirect > 0L
+        val hasAppTraffic = pendingAppTraffic.isNotEmpty()
+
+        if (!hasSlotTraffic && !hasAppTraffic) {
             lastFlushTime = System.currentTimeMillis()
             return
         }
@@ -84,31 +148,53 @@ object TrafficMonitorManager {
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val minute = cal.get(Calendar.MINUTE)
 
-        val rxP = pendingRxProxy
-        val txP = pendingTxProxy
-        val rxD = pendingRxDirect
-        val txD = pendingTxDirect
+        if (hasSlotTraffic) {
+            val rxP = pendingRxProxy
+            val txP = pendingTxProxy
+            val rxD = pendingRxDirect
+            val txD = pendingTxDirect
 
-        pendingRxProxy = 0L
-        pendingTxProxy = 0L
-        pendingRxDirect = 0L
-        pendingTxDirect = 0L
-        lastFlushTime = System.currentTimeMillis()
+            pendingRxProxy = 0L
+            pendingTxProxy = 0L
+            pendingRxDirect = 0L
+            pendingTxDirect = 0L
 
-        try {
-            TrafficDatabase.trafficDao.addDelta(
-                timestamp = slot,
-                date = date,
-                hour = hour,
-                minute = minute,
-                rxProxy = rxP,
-                txProxy = txP,
-                rxDirect = rxD,
-                txDirect = txD,
-            )
-        } catch (e: Exception) {
-            Logs.w("Failed to flush traffic records: ${e.message}")
+            try {
+                TrafficDatabase.trafficDao.addDelta(
+                    timestamp = slot,
+                    date = date,
+                    hour = hour,
+                    minute = minute,
+                    rxProxy = rxP,
+                    txProxy = txP,
+                    rxDirect = rxD,
+                    txDirect = txD,
+                )
+            } catch (e: Exception) {
+                Logs.w("Failed to flush traffic records: ${e.message}")
+            }
         }
+
+        if (hasAppTraffic) {
+            val appDeltas = pendingAppTraffic.values.toList()
+            pendingAppTraffic.clear()
+            for (delta in appDeltas) {
+                try {
+                    TrafficDatabase.appTrafficDao.addDelta(
+                        timestamp = slot,
+                        date = date,
+                        packageName = delta.packageName,
+                        uid = delta.uid,
+                        rxProxy = delta.rxProxy,
+                        txProxy = delta.txProxy,
+                    )
+                } catch (e: Exception) {
+                    Logs.w("Failed to flush app traffic record for ${delta.packageName}: ${e.message}")
+                }
+            }
+        }
+
+        lastFlushTime = System.currentTimeMillis()
     }
 
     private fun purgeOldRecordsLocked(now: Long) {
@@ -123,6 +209,7 @@ object TrafficMonitorManager {
             }
             val cutoff = cal.timeInMillis
             TrafficDatabase.trafficDao.deleteOlderThan(cutoff)
+            TrafficDatabase.appTrafficDao.deleteOlderThan(cutoff)
             Logs.d("Purged traffic records older than $cutoff (${dateFormat.format(cal.time)})")
         } catch (e: Exception) {
             Logs.w("Failed to purge old traffic records: ${e.message}")
@@ -144,7 +231,9 @@ object TrafficMonitorManager {
                 pendingTxProxy = 0L
                 pendingRxDirect = 0L
                 pendingTxDirect = 0L
+                pendingAppTraffic.clear()
                 TrafficDatabase.trafficDao.clearAll()
+                TrafficDatabase.appTrafficDao.clearAll()
             }
         }
     }

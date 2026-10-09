@@ -9,10 +9,11 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 
-@Database(entities = [TrafficRecord::class], version = 1, exportSchema = false)
+@Database(entities = [TrafficRecord::class, AppTrafficRecord::class], version = 2, exportSchema = false)
 abstract class TrafficDatabase : RoomDatabase() {
 
     abstract fun trafficRecordDao(): TrafficRecordDao
+    abstract fun appTrafficRecordDao(): AppTrafficRecordDao
 
     companion object {
         @OptIn(DelicateCoroutinesApi::class)
@@ -28,5 +29,6 @@ abstract class TrafficDatabase : RoomDatabase() {
         }
 
         val trafficDao get() = instance.trafficRecordDao()
+        val appTrafficDao get() = instance.appTrafficRecordDao()
     }
 }

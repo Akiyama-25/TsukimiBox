@@ -42,9 +42,13 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
     override fun findConnectionOwner(
         ipProto: Int, srcIp: String, srcPort: Int, destIp: String, destPort: Int
     ): Int {
-        return SagerNet.connectivity.getConnectionOwnerUid(
+        val uid = SagerNet.connectivity.getConnectionOwnerUid(
             ipProto, InetSocketAddress(srcIp, srcPort), InetSocketAddress(destIp, destPort)
         )
+        if (uid > 0) {
+            io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager.recordUidConnection(uid)
+        }
+        return uid
     }
 
     override fun packageNameByUid(uid: Int): String {

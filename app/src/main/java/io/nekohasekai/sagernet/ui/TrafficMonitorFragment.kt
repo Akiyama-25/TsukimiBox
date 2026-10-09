@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.format.Formatter
 import android.view.LayoutInflater
@@ -17,13 +18,15 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.database.traffic.AppTrafficSummary
 import io.nekohasekai.sagernet.database.traffic.TrafficDatabase
 import io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager
-import io.nekohasekai.sagernet.database.traffic.TrafficRecord
+import io.nekohasekai.sagernet.databinding.ItemTrafficAppBinding
 import io.nekohasekai.sagernet.databinding.ItemTrafficPeriodBinding
 import io.nekohasekai.sagernet.databinding.LayoutTrafficMonitorBinding
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
+import io.nekohasekai.sagernet.utils.PackageCache
 import io.nekohasekai.sagernet.widget.TrafficBarChartView
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,6 +42,18 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         WEEKLY
     }
 
+    enum class DisplayTab {
+        TIME,
+        APP
+    }
+
+    enum class AppSortMode {
+        TRAFFIC,
+        NAME,
+        PACKAGE,
+        UID
+    }
+
     private data class DrillState(
         val parentMode: ViewMode,
         val targetMode: ViewMode,
@@ -46,10 +61,25 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         val breadcrumbText: String
     )
 
+    private data class AppDisplayItem(
+        val packageName: String,
+        val uid: Int,
+        val name: String,
+        val icon: Drawable?,
+        val rx: Long,
+        val tx: Long,
+        val total: Long,
+    )
+
     private lateinit var binding: LayoutTrafficMonitorBinding
     private val drillStack = Stack<DrillState>()
     private var currentMode = ViewMode.FIFTEEN_MIN
     private var customScopeParam: Any? = null
+
+    private var currentDisplayTab = DisplayTab.TIME
+    private var currentSortMode = AppSortMode.TRAFFIC
+    private var cachedAppItems = emptyList<AppDisplayItem>()
+    private var appTrafficAdapter: AppTrafficAdapter? = null
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -73,10 +103,13 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         binding = LayoutTrafficMonitorBinding.bind(view)
 
         setupTabs()
+        setupViewSwitchTabs()
+        setupSortControls()
         setupChart()
         setupBreadcrumb()
 
         binding.rvBreakdown.layoutManager = LinearLayoutManager(requireContext())
+        binding.rvAppTraffic.layoutManager = LinearLayoutManager(requireContext())
 
         // Register date changed broadcast for 00:00 midnight rollover
         val filter = IntentFilter().apply {
@@ -122,6 +155,48 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
                     loadData()
                 }
             })
+        }
+    }
+
+    private fun setupViewSwitchTabs() {
+        binding.tabViewSwitch.apply {
+            removeAllTabs()
+            addTab(newTab().setText(R.string.traffic_monitor_view_time).setTag(DisplayTab.TIME))
+            addTab(newTab().setText(R.string.traffic_monitor_view_app).setTag(DisplayTab.APP))
+
+            addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+                override fun onTabSelected(tab: TabLayout.Tab?) {
+                    val targetTab = tab?.tag as? DisplayTab ?: return
+                    currentDisplayTab = targetTab
+                    applyDisplayTab()
+                }
+
+                override fun onTabUnselected(tab: TabLayout.Tab?) {}
+                override fun onTabReselected(tab: TabLayout.Tab?) {}
+            })
+        }
+    }
+
+    private fun applyDisplayTab() {
+        if (currentDisplayTab == DisplayTab.TIME) {
+            binding.layoutTimeViewContainer.visibility = View.VISIBLE
+            binding.layoutAppViewContainer.visibility = View.GONE
+        } else {
+            binding.layoutTimeViewContainer.visibility = View.GONE
+            binding.layoutAppViewContainer.visibility = View.VISIBLE
+            updateAppTrafficView()
+        }
+    }
+
+    private fun setupSortControls() {
+        binding.chipGroupSort.setOnCheckedChangeListener { _, checkedId ->
+            currentSortMode = when (checkedId) {
+                R.id.chip_sort_name -> AppSortMode.NAME
+                R.id.chip_sort_package -> AppSortMode.PACKAGE
+                R.id.chip_sort_uid -> AppSortMode.UID
+                else -> AppSortMode.TRAFFIC
+            }
+            updateAppTrafficView()
         }
     }
 
@@ -211,6 +286,7 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
             val now = System.currentTimeMillis()
             val barItems: List<TrafficBarChartView.BarItem>
 
+            // Only count proxied traffic, strictly excluding direct traffic that bypassed proxy
             when (currentMode) {
                 ViewMode.FIFTEEN_MIN -> {
                     barItems = queryFifteenMinuteData(now, customScopeParam as? Long)
@@ -229,6 +305,27 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
             val totalRx = barItems.sumOf { it.rx }
             val totalTx = barItems.sumOf { it.tx }
             val grandTotal = totalRx + totalTx
+
+            // Query App Traffic breakdown
+            val appSummaries = queryAppTrafficSummaries(now)
+            val pm = requireContext().packageManager
+            val appDisplayItems = appSummaries.map { summary ->
+                val label = PackageCache.loadLabel(summary.packageName)
+                val icon = try {
+                    PackageCache.installedApps[summary.packageName]?.loadIcon(pm)
+                } catch (_: Exception) {
+                    null
+                }
+                AppDisplayItem(
+                    packageName = summary.packageName,
+                    uid = summary.uid,
+                    name = label,
+                    icon = icon,
+                    rx = summary.rxProxy,
+                    tx = summary.txProxy,
+                    total = summary.total,
+                )
+            }
 
             onMainDispatcher {
                 if (!isAdded) return@onMainDispatcher
@@ -250,8 +347,95 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
                 )
 
                 binding.tvEmpty.visibility = if (barItems.isEmpty() || grandTotal == 0L) View.VISIBLE else View.GONE
+
+                // Update App Traffic View
+                cachedAppItems = appDisplayItems
+                updateAppTrafficView()
             }
         }
+    }
+
+    private fun updateAppTrafficView() {
+        if (!isAdded) return
+        val sorted = sortAppItems(cachedAppItems, currentSortMode)
+        val maxTraffic = max(1L, sorted.maxOfOrNull { it.total } ?: 1L)
+
+        if (appTrafficAdapter == null) {
+            appTrafficAdapter = AppTrafficAdapter(sorted, maxTraffic)
+            binding.rvAppTraffic.adapter = appTrafficAdapter
+        } else {
+            appTrafficAdapter?.updateData(sorted, maxTraffic)
+        }
+
+        val hasApps = sorted.isNotEmpty() && sorted.any { it.total > 0L }
+        binding.tvAppEmpty.visibility = if (hasApps) View.GONE else View.VISIBLE
+        binding.rvAppTraffic.visibility = if (hasApps) View.VISIBLE else View.GONE
+    }
+
+    private fun sortAppItems(items: List<AppDisplayItem>, sortMode: AppSortMode): List<AppDisplayItem> {
+        return when (sortMode) {
+            AppSortMode.TRAFFIC -> items.sortedByDescending { it.total }
+            AppSortMode.NAME -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            AppSortMode.PACKAGE -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.packageName })
+            AppSortMode.UID -> items.sortedBy { it.uid }
+        }
+    }
+
+    private fun queryAppTrafficSummaries(now: Long): List<AppTrafficSummary> {
+        val slotDuration = TrafficMonitorManager.SLOT_DURATION_MS
+        val appDao = TrafficDatabase.appTrafficDao
+
+        val results = when (currentMode) {
+            ViewMode.FIFTEEN_MIN -> {
+                val startMs: Long
+                val endMs: Long
+                val specific = customScopeParam as? Long
+                if (specific != null) {
+                    startMs = specific
+                    endMs = startMs + 3 * 3600_000L
+                } else {
+                    val currentSlot = now - (now % slotDuration)
+                    endMs = currentSlot + slotDuration
+                    startMs = endMs - 3 * 3600_000L
+                }
+                appDao.getAppTrafficBetween(startMs, endMs)
+            }
+            ViewMode.THREE_HOURS -> {
+                val specificDate = customScopeParam as? String
+                if (specificDate != null) {
+                    appDao.getAppTrafficByDate(specificDate)
+                } else {
+                    val endMs = now
+                    val startMs = endMs - 24 * 3600_000L
+                    appDao.getAppTrafficBetween(startMs, endMs)
+                }
+            }
+            ViewMode.DAILY -> {
+                val specificDate = customScopeParam as? String
+                if (specificDate != null) {
+                    appDao.getAppTrafficByDate(specificDate)
+                } else {
+                    val startMs = now - 7 * 24 * 3600_000L
+                    appDao.getAppTrafficBetween(startMs, now + 3600_000L)
+                }
+            }
+            ViewMode.WEEKLY -> {
+                val cal = Calendar.getInstance().apply {
+                    timeInMillis = now
+                    firstDayOfWeek = Calendar.MONDAY
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                }
+                val mondayStart = cal.timeInMillis
+                val sundayEnd = mondayStart + 7 * 24 * 3600_000L
+                appDao.getAppTrafficBetween(mondayStart, sundayEnd)
+            }
+        }
+
+        return if (results.isNotEmpty()) results else appDao.getAllAppTraffic()
     }
 
     private fun queryFifteenMinuteData(now: Long, specificStartMs: Long?): List<TrafficBarChartView.BarItem> {
@@ -276,8 +460,9 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         var slotTime = startMs
         while (slotTime < endMs) {
             val rec = recordMap[slotTime]
-            val rx = rec?.rxTotal ?: 0L
-            val tx = rec?.txTotal ?: 0L
+            // Proxied traffic only
+            val rx = rec?.rxProxy ?: 0L
+            val tx = rec?.txProxy ?: 0L
             val label = timeFormat.format(Date(slotTime))
 
             items.add(
@@ -318,9 +503,10 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
                 val slotStart = dayStart + i * threeHourMs
                 val slotEnd = slotStart + threeHourMs
                 val slotRecords = records.filter { it.timestamp in slotStart until slotEnd }
-                val rx = slotRecords.sumOf { it.rxTotal }
-                val tx = slotRecords.sumOf { it.txTotal }
-                val label = "${String.format(Locale.getDefault(), "%02d:00", i * 3)}"
+                // Proxied traffic only
+                val rx = slotRecords.sumOf { it.rxProxy }
+                val tx = slotRecords.sumOf { it.txProxy }
+                val label = String.format(Locale.getDefault(), "%02d:00", i * 3)
 
                 items.add(
                     TrafficBarChartView.BarItem(
@@ -349,8 +535,9 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
                 val slotStart = startMs + i * threeHourMs
                 val slotEnd = slotStart + threeHourMs
                 val slotRecords = records.filter { it.timestamp in slotStart until slotEnd }
-                val rx = slotRecords.sumOf { it.rxTotal }
-                val tx = slotRecords.sumOf { it.txTotal }
+                // Proxied traffic only
+                val rx = slotRecords.sumOf { it.rxProxy }
+                val tx = slotRecords.sumOf { it.txProxy }
                 val label = timeFormat.format(Date(slotStart))
 
                 items.add(
@@ -390,8 +577,9 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         for (d in dates) {
             val dateStr = dateFormat.format(d)
             val records = TrafficDatabase.trafficDao.getRecordsByDate(dateStr)
-            val rx = records.sumOf { it.rxTotal }
-            val tx = records.sumOf { it.txTotal }
+            // Proxied traffic only
+            val rx = records.sumOf { it.rxProxy }
+            val tx = records.sumOf { it.txProxy }
 
             val label = if (dateStr == todayStr) {
                 getString(R.string.traffic_monitor_today)
@@ -437,8 +625,9 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         for (i in 0 until 7) {
             val dateStr = dateFormat.format(cal.time)
             val records = TrafficDatabase.trafficDao.getRecordsByDate(dateStr)
-            val rx = records.sumOf { it.rxTotal }
-            val tx = records.sumOf { it.txTotal }
+            // Proxied traffic only
+            val rx = records.sumOf { it.rxProxy }
+            val tx = records.sumOf { it.txProxy }
 
             items.add(
                 TrafficBarChartView.BarItem(
@@ -476,7 +665,7 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         return false
     }
 
-    // Detail List Adapter
+    // Detail List Adapter (Time breakdown)
     private class TrafficDetailAdapter(
         private val items: List<TrafficBarChartView.BarItem>,
         private val canDrill: Boolean,
@@ -515,6 +704,54 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
                 holder.binding.periodDrillHint.visibility = View.GONE
                 holder.itemView.setOnClickListener(null)
             }
+        }
+
+        override fun getItemCount(): Int = items.size
+    }
+
+    // App Traffic Breakdown Adapter
+    private class AppTrafficAdapter(
+        private var items: List<AppDisplayItem>,
+        private var maxTraffic: Long
+    ) : RecyclerView.Adapter<AppTrafficAdapter.ViewHolder>() {
+
+        class ViewHolder(val binding: ItemTrafficAppBinding) : RecyclerView.ViewHolder(binding.root)
+
+        fun updateData(newItems: List<AppDisplayItem>, newMaxTraffic: Long) {
+            items = newItems
+            maxTraffic = newMaxTraffic
+            notifyDataSetChanged()
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val inflater = LayoutInflater.from(parent.context)
+            val binding = ItemTrafficAppBinding.inflate(inflater, parent, false)
+            return ViewHolder(binding)
+        }
+
+        @SuppressLint("SetTextI18n")
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            val item = items[position]
+            val ctx = holder.itemView.context
+
+            holder.binding.title.text = item.name
+            holder.binding.desc.text = "${item.packageName} (${item.uid})"
+
+            if (item.icon != null) {
+                holder.binding.itemicon.setImageDrawable(item.icon)
+            } else {
+                holder.binding.itemicon.setImageResource(android.R.drawable.sym_def_app_icon)
+            }
+
+            holder.binding.appTotalTraffic.text = Formatter.formatFileSize(ctx, item.total)
+            holder.binding.appSubTraffic.text = "▼ ${Formatter.formatFileSize(ctx, item.rx)}  ▲ ${Formatter.formatFileSize(ctx, item.tx)}"
+
+            val ratio = if (maxTraffic > 0L) {
+                ((item.total.toDouble() / maxTraffic.toDouble()) * 1000).toInt()
+            } else {
+                0
+            }
+            holder.binding.appTrafficProgress.progress = ratio
         }
 
         override fun getItemCount(): Int = items.size

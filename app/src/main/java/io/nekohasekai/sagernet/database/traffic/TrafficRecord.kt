@@ -15,7 +15,8 @@ data class TrafficRecord(
     var rxDirect: Long = 0L,
     var txDirect: Long = 0L,
 ) {
-    val rxTotal: Long get() = rxProxy + rxDirect
-    val txTotal: Long get() = txProxy + txDirect
+    // Only count proxied traffic, exclude direct traffic that bypasses proxy
+    val rxTotal: Long get() = rxProxy
+    val txTotal: Long get() = txProxy
     val total: Long get() = rxTotal + txTotal
 }

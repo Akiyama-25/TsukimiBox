@@ -440,4 +440,12 @@
     <string name="traffic_monitor_clear">清空流量監控資料</string>
     <string name="traffic_monitor_clear_confirm">確定要清空所有流量監控記錄嗎？</string>
     <string name="action_refresh">重新整理</string>
+    <string name="traffic_monitor_view_time">依時間檢視</string>
+    <string name="traffic_monitor_view_app">依應用程式統計</string>
+    <string name="traffic_monitor_app_traffic_title">應用程式流量排行</string>
+    <string name="traffic_monitor_sort_traffic">依流量</string>
+    <string name="traffic_monitor_sort_name">依名稱</string>
+    <string name="traffic_monitor_sort_package">依套件</string>
+    <string name="traffic_monitor_sort_uid">依 UID</string>
+    <string name="traffic_monitor_app_empty">暫無應用程式代理流量記錄</string>
 </resources>
