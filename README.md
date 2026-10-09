@@ -1,6 +1,8 @@
 # TsukimiBox 
 - 基于[Nekobox](https://github.com/MatsuriDayo/NekoBoxForAndroid)修改
 - 加入了代理流量监控，不必在Web Dashboard查看，且可持续储存。
+- Based on a modified version of [Nekobox](https://github.com/MatsuriDayo/NekoBoxForAndroid).
+- Added proxy traffic monitoring, eliminating the need to check the Web Dashboard, with support for persistent data storage.
 
 sing-box / universal proxy toolchain for Android.
 
