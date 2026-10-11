@@ -66,9 +66,14 @@ jobs:
             TAG_NAME="${INPUT_TAG}"
           else
             if [ "$FLAVOR" = "preview" ] && [ -n "$PROP_PRE_VERSION" ]; then
-              TAG_NAME="v${PROP_PRE_VERSION#v}"
+              RAW_VER="${PROP_PRE_VERSION}"
             else
-              TAG_NAME="v${PROP_VERSION#v}"
+              RAW_VER="${PROP_VERSION}"
+            fi
+            if [[ "$RAW_VER" =~ ^[0-9] ]]; then
+              TAG_NAME="v${RAW_VER}"
+            else
+              TAG_NAME="${RAW_VER}"
             fi
           fi
 

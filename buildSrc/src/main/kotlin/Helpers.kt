@@ -102,9 +102,10 @@ fun Project.setupCommon() {
             applicationVariants.forEach { variant ->
                 variant.outputs.forEach {
                     it as BaseVariantOutputImpl
-                    it.outputFileName = it.outputFileName.replace(
-                        "app", "${project.name}-" + variant.versionName
-                    ).replace("-release", "").replace("-oss", "")
+                    it.outputFileName = it.outputFileName
+                        .replace("-release", "")
+                        .replace("-oss", "")
+                        .replace("app", "${project.name}-" + variant.versionName)
                 }
             }
         }
@@ -195,14 +196,18 @@ fun Project.setupApp() {
                 this as BaseVariantOutputImpl
                 val isPreview = outputFileName.contains("-preview")
                 outputFileName = if (isPreview) {
-                    outputFileName.replace(
-                        project.name,
-                        "NekoBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
-                    ).replace("-preview", "")
+                    outputFileName
+                        .replace("-release", "")
+                        .replace("-preview", "")
+                        .replace(
+                            project.name,
+                            "NekoBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        )
                 } else {
-                    outputFileName.replace(project.name, "NekoBox-$versionName")
+                    outputFileName
                         .replace("-release", "")
                         .replace("-oss", "")
+                        .replace(project.name, "NekoBox-$versionName")
                 }
             }
         }
