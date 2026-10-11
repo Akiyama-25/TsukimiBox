@@ -36,9 +36,6 @@ on:
         required: false
         default: true
         type: boolean
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
@@ -65,9 +62,7 @@ jobs:
           PROP_PRE_VERSION=$(grep '^PRE_VERSION_NAME=' nb4a.properties | cut -d'=' -f2 | tr -d '\r\n ')
           FLAVOR="${INPUT_FLAVOR:-oss}"
 
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            TAG_NAME="${GITHUB_REF_NAME}"
-          elif [ -n "${INPUT_TAG}" ]; then
+          if [ -n "${INPUT_TAG}" ]; then
             TAG_NAME="${INPUT_TAG}"
           else
             if [ "$FLAVOR" = "preview" ] && [ -n "$PROP_PRE_VERSION" ]; then
