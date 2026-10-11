@@ -1,0 +1,345 @@
+name: Release Signed APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release Tag (e.g. v1.4.2, leave empty to auto-detect from nb4a.properties)"
+        required: false
+        default: ""
+        type: string
+      release_name:
+        description: "Release Title (leave empty to use 'TsukimiBox <tag>')"
+        required: false
+        default: ""
+        type: string
+      flavor:
+        description: "Build Flavor"
+        required: true
+        default: "oss"
+        type: choice
+        options:
+          - "oss"
+          - "preview"
+      prerelease:
+        description: "Mark as Pre-release"
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: "Save as Draft Release"
+        required: false
+        default: false
+        type: boolean
+      save_keystore:
+        description: "Upload Keystore as Workflow Artifact (for backup)"
+        required: false
+        default: true
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Signed APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve Release Metadata
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_FLAVOR: ${{ inputs.flavor }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          PROP_VERSION=$(grep '^VERSION_NAME=' nb4a.properties | cut -d'=' -f2 | tr -d '\r\n ')
+          PROP_PRE_VERSION=$(grep '^PRE_VERSION_NAME=' nb4a.properties | cut -d'=' -f2 | tr -d '\r\n ')
+          FLAVOR="${INPUT_FLAVOR:-oss}"
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+          elif [ -n "${INPUT_TAG}" ]; then
+            TAG_NAME="${INPUT_TAG}"
+          else
+            if [ "$FLAVOR" = "preview" ] && [ -n "$PROP_PRE_VERSION" ]; then
+              TAG_NAME="v${PROP_PRE_VERSION#v}"
+            else
+              TAG_NAME="v${PROP_VERSION#v}"
+            fi
+          fi
+
+          if [ -n "${INPUT_RELEASE_NAME}" ]; then
+            RELEASE_NAME="${INPUT_RELEASE_NAME}"
+          else
+            RELEASE_NAME="TsukimiBox ${TAG_NAME}"
+          fi
+
+          if [ "${INPUT_PRERELEASE}" = "true" ] || [ "$FLAVOR" = "preview" ] || [[ "$TAG_NAME" == *"pre"* ]] || [[ "$TAG_NAME" == *"-alpha"* ]] || [[ "$TAG_NAME" == *"-beta"* ]] || [[ "$TAG_NAME" == *"-rc"* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${RELEASE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "flavor=${FLAVOR}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+
+          echo "=== Release Metadata ==="
+          echo "Tag Name: ${TAG_NAME}"
+          echo "Release Name: ${RELEASE_NAME}"
+          echo "Flavor: ${FLAVOR}"
+          echo "Pre-release: ${IS_PRERELEASE}"
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.25
+
+      - name: Setup Android NDK & SDK Path
+        run: |
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -name "25.*" 2>/dev/null | head -n 1)
+          if [ -z "$NDK_PATH" ]; then
+            NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -type d 2>/dev/null | tail -n 1)
+          fi
+          echo "ndk.dir=${NDK_PATH}" >> local.properties
+          echo "Using NDK: ${NDK_PATH}"
+
+      - name: LibCore Status Check
+        run: |
+          find buildScript libcore/*.sh -type f 2>/dev/null | xargs cat 2>/dev/null | sha1sum > golang_status
+          git ls-files libcore | xargs cat | sha1sum > libcore_status
+
+      - name: Cache LibCore Native AAR
+        id: cache-libcore
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libcore.aar
+          key: libcore-${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+          restore-keys: |
+            libcore-
+
+      - name: Build LibCore Native Core
+        if: steps.cache-libcore.outputs.cache-hit != 'true'
+        run: |
+          ./run lib core
+
+      - name: Restore Signing Keystore Cache
+        id: cache-signing-keystore
+        uses: actions/cache@v4
+        with:
+          path: .signing_cache
+          key: tsukimibox-signing-keystore-v1
+
+      - name: Setup Signing Keystore
+        id: keystore
+        env:
+          SECRET_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          SECRET_ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          SECRET_ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+        run: |
+          echo "=== Setting up Signing Keystore ==="
+          mkdir -p .signing_cache keystore_backup
+
+          LEGACY_HASH="c49f0d17b35b8e6620a20eced4b8a14274a3050592543e6a67aa7cc52bca1599"
+          if [ -f release.keystore ]; then
+            CURRENT_HASH=$(sha256sum release.keystore | awk '{print $1}')
+            if [ "$CURRENT_HASH" = "$LEGACY_HASH" ]; then
+              echo "Detected legacy upstream keystore with unknown password, removing..."
+              rm -f release.keystore
+            fi
+          fi
+
+          DEFAULT_KEYSTORE_PASS="tsukimibox_release_2026"
+          DEFAULT_ALIAS_NAME="tsukimibox"
+          DEFAULT_ALIAS_PASS="tsukimibox_release_2026"
+
+          if [ -n "$SECRET_KEYSTORE_BASE64" ]; then
+            echo "Priority 1: Restoring keystore from GitHub Secrets..."
+            echo "$SECRET_KEYSTORE_BASE64" | base64 -d > release.keystore
+            KEYSTORE_PASS="${SECRET_KEYSTORE_PASS:-$DEFAULT_KEYSTORE_PASS}"
+            ALIAS_NAME="${SECRET_ALIAS_NAME:-$DEFAULT_ALIAS_NAME}"
+            ALIAS_PASS="${SECRET_ALIAS_PASS:-$KEYSTORE_PASS}"
+          elif [ -f .signing_cache/release.keystore ]; then
+            echo "Priority 2: Restoring persistent keystore from Actions Cache..."
+            cp .signing_cache/release.keystore release.keystore
+            if [ -f .signing_cache/credentials.env ]; then
+              source .signing_cache/credentials.env
+            else
+              KEYSTORE_PASS="$DEFAULT_KEYSTORE_PASS"
+              ALIAS_NAME="$DEFAULT_ALIAS_NAME"
+              ALIAS_PASS="$DEFAULT_ALIAS_PASS"
+            fi
+          elif [ -f release.keystore ]; then
+            echo "Priority 3: Using pre-existing release.keystore in workspace..."
+            KEYSTORE_PASS="${SECRET_KEYSTORE_PASS:-$DEFAULT_KEYSTORE_PASS}"
+            ALIAS_NAME="${SECRET_ALIAS_NAME:-$DEFAULT_ALIAS_NAME}"
+            ALIAS_PASS="${SECRET_ALIAS_PASS:-$KEYSTORE_PASS}"
+          else
+            echo "Priority 4: Generating persistent baseline release.keystore..."
+            KEYSTORE_PASS="$DEFAULT_KEYSTORE_PASS"
+            ALIAS_NAME="$DEFAULT_ALIAS_NAME"
+            ALIAS_PASS="$DEFAULT_ALIAS_PASS"
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias "${ALIAS_NAME}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "${KEYSTORE_PASS}" \
+              -keypass "${ALIAS_PASS}" \
+              -dname "CN=TsukimiBox, OU=Release, O=TsukimiBox, L=Tokyo, ST=Tokyo, C=JP"
+          fi
+
+          # Synchronize active keystore and credentials to cache
+          cp release.keystore .signing_cache/release.keystore
+          {
+            echo "KEYSTORE_PASS=${KEYSTORE_PASS}"
+            echo "ALIAS_NAME=${ALIAS_NAME}"
+            echo "ALIAS_PASS=${ALIAS_PASS}"
+          } > .signing_cache/credentials.env
+
+          # Populate local.properties and environment variables for Gradle
+          echo "KEYSTORE_PASS=${KEYSTORE_PASS}" >> local.properties
+          echo "ALIAS_NAME=${ALIAS_NAME}" >> local.properties
+          echo "ALIAS_PASS=${ALIAS_PASS}" >> local.properties
+
+          echo "KEYSTORE_PASS=${KEYSTORE_PASS}" >> $GITHUB_ENV
+          echo "ALIAS_NAME=${ALIAS_NAME}" >> $GITHUB_ENV
+          echo "ALIAS_PASS=${ALIAS_PASS}" >> $GITHUB_ENV
+
+          # Prepare keystore backup artifact and base64 export
+          cp release.keystore keystore_backup/
+          base64 -w 0 release.keystore > keystore_backup/keystore_base64.txt
+          {
+            echo "Keystore File: release.keystore"
+            echo "Alias: ${ALIAS_NAME}"
+            echo "Keystore Password: ${KEYSTORE_PASS}"
+            echo "Key Password: ${ALIAS_PASS}"
+            echo ""
+            echo "================================================================================"
+            echo "Notice: To permanently fix signatures across all CI runners and clean caches:"
+            echo "1. Copy the content of 'keystore_base64.txt' into GitHub Repository Secret 'KEYSTORE_BASE64'."
+            echo "2. Add 'KEYSTORE_PASS', 'ALIAS_NAME', and 'ALIAS_PASS' to Secrets if customized."
+            echo "================================================================================"
+          } > keystore_backup/credentials.txt
+          echo "Signing Keystore configuration completed successfully."
+
+      - name: Prepare Assets (GeoIP / GeoSite)
+        run: |
+          ./run init action gradle
+
+      - name: Gradle Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build Signed APK
+        env:
+          BUILD_PLUGIN: none
+          FLAVOR: ${{ steps.meta.outputs.flavor }}
+        run: |
+          if [ "$FLAVOR" = "preview" ]; then
+            TASK="assemblePreviewRelease"
+          else
+            TASK="assembleOssRelease"
+          fi
+          echo "Running ./gradlew app:${TASK}..."
+          ./gradlew "app:${TASK}"
+
+      - name: Verify Signatures & Prepare Release Assets
+        run: |
+          echo "=== Verifying APK Signatures & Preparing Release Assets ==="
+          mkdir -p release_assets
+          APKSIGNER=$(find ${ANDROID_HOME}/build-tools -name "apksigner" | sort -V | tail -n 1)
+          echo "Using apksigner: ${APKSIGNER}"
+
+          CERT_SHA256=""
+          for apk in $(find app/build/outputs/apk -name "*.apk" | sort); do
+            echo "----------------------------------------"
+            echo "Verifying: $apk"
+            CERT_OUTPUT=$("$APKSIGNER" verify --verbose --print-certs "$apk" || true)
+            echo "$CERT_OUTPUT"
+            if [ -z "$CERT_SHA256" ]; then
+              CERT_SHA256=$(echo "$CERT_OUTPUT" | grep -m 1 "SHA-256 digest:" | awk -F': ' '{print $2}' | tr -d '\r\n ')
+            fi
+
+            base_name=$(basename "$apk")
+            new_name="${base_name/#NekoBox-/TsukimiBox-}"
+            cp "$apk" "release_assets/$new_name"
+          done
+
+          (
+            cd release_assets
+            sha256sum *.apk > SHA256SUMS.txt
+          )
+
+          {
+            echo "### Build Information"
+            echo "- **Tag**: \`${{ steps.meta.outputs.tag_name }}\`"
+            echo "- **Flavor**: \`${{ steps.meta.outputs.flavor }}\`"
+            echo "- **Commit**: \`${GITHUB_SHA}\`"
+            if [ -n "$CERT_SHA256" ]; then
+              echo "- **APK Signing Certificate (SHA-256)**: \`${CERT_SHA256}\`"
+            fi
+            echo ""
+            echo "### SHA-256 Checksums"
+            echo "\`\`\`text"
+            cat release_assets/SHA256SUMS.txt
+            echo "\`\`\`"
+          } > release_notes.md
+
+          echo "=== Prepared Release Assets ==="
+          ls -lh release_assets/
+          cat release_notes.md
+
+      - name: Upload Signed APKs Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-${{ steps.meta.outputs.tag_name }}-APKs
+          path: |
+            release_assets/*.apk
+            release_assets/SHA256SUMS.txt
+
+      - name: Upload Keystore Artifact
+        if: always() && steps.keystore.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.save_keystore != false)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-Signing-Keystore
+          path: keystore_backup/
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          body_path: release_notes.md
+          generate_release_notes: true
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}
+          files: |
+            release_assets/*.apk
+            release_assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
