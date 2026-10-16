@@ -14,6 +14,7 @@ import androidx.activity.addCallback
 import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.customview.widget.ViewDragHelper
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -73,6 +74,22 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         navigation.setNavigationItemSelectedListener(this)
+
+        try {
+            val draggerField = binding.drawerLayout.javaClass.getDeclaredField("mLeftDragger")
+            draggerField.isAccessible = true
+            val leftDragger = draggerField.get(binding.drawerLayout) as? ViewDragHelper
+            if (leftDragger != null) {
+                val edgeSizeField = ViewDragHelper::class.java.getDeclaredField("mEdgeSize")
+                edgeSizeField.isAccessible = true
+                val originalEdgeSize = edgeSizeField.getInt(leftDragger)
+                val targetEdgeSize = (resources.displayMetrics.density * 64).toInt()
+                if (targetEdgeSize > originalEdgeSize) {
+                    edgeSizeField.setInt(leftDragger, targetEdgeSize)
+                }
+            }
+        } catch (_: Throwable) {
+        }
 
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)

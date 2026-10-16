@@ -96,7 +96,16 @@ jobs:
           mv ghr*linux_amd64/ghr .
           mkdir apks
           find artifacts -name "*.apk" -exec cp {} apks \;
-          ./ghr -delete -t "${{ github.token }}" -n "${{ github.event.inputs.tag }}" "${{ github.event.inputs.tag }}" apks
+          cat << 'EOF' > release_body.txt
+### Build Information / 构建信息
+- **Tag / 标签**: `${{ github.event.inputs.tag }}`
+- **Flavor / 版本变体**: OSS
+
+### Description / 版本说明
+- **English**: Automated release build for TsukimiBox.
+- **中文**: TsukimiBox 自动构建发布版本。
+EOF
+          ./ghr -delete -t "${{ github.token }}" -n "${{ github.event.inputs.tag }}" -b "$(cat release_body.txt)" "${{ github.event.inputs.tag }}" apks
   play:
     name: Build Play Bundle
     if: github.event.inputs.play != 'y'

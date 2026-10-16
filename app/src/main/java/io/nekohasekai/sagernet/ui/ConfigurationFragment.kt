@@ -13,6 +13,7 @@ import android.text.style.ForegroundColorSpan
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -206,6 +207,30 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         groupPager.adapter = adapter
         groupPager.offscreenPageLimit = 2
+
+        (groupPager.getChildAt(0) as? RecyclerView)?.addOnItemTouchListener(object :
+            RecyclerView.SimpleOnItemTouchListener() {
+            private var startX = 0f
+            private var startY = 0f
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startX = e.x
+                        startY = e.y
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = e.x - startX
+                        val dy = e.y - startY
+                        if (dx > 0 && Math.abs(dx) > Math.abs(dy)) {
+                            if (groupPager.currentItem == 0) {
+                                rv.parent?.requestDisallowInterceptTouchEvent(false)
+                            }
+                        }
+                    }
+                }
+                return false
+            }
+        })
 
         TabLayoutMediator(tabLayout, groupPager) { tab, position ->
             if (adapter.groupList.size > position) {

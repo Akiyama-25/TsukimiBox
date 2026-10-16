@@ -337,10 +337,6 @@ class AssetsActivity : ThemedActivity() {
         return true
     }
 
-    override fun onBackPressed() {
-        finish()
-    }
-
     override fun onResume() {
         super.onResume()
 

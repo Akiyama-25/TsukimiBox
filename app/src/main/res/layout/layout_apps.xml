@@ -13,29 +13,21 @@
         android:layout_height="wrap_content"
         android:background="?attr/colorPrimary">
 
-        <com.google.android.material.appbar.CollapsingToolbarLayout
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            android:elevation="4dp"
+            android:theme="?actionBarTheme"
+            android:touchscreenBlocksFocus="false"
+            app:popupTheme="@style/ThemeOverlay.AppCompat.DayNight"
+            app:title="@string/app_name" />
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:layout_scrollFlags="scroll|enterAlways"
-            app:titleEnabled="false">
-
-            <com.google.android.material.appbar.MaterialToolbar
-                android:id="@+id/toolbar"
-                android:layout_width="match_parent"
-                android:layout_height="?attr/actionBarSize"
-                android:background="?attr/colorPrimary"
-                android:elevation="4dp"
-                android:theme="?actionBarTheme"
-                android:touchscreenBlocksFocus="false"
-                app:layout_collapseMode="pin"
-                app:popupTheme="@style/ThemeOverlay.AppCompat.DayNight"
-                app:title="@string/app_name" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingTop="56dp">
+            android:orientation="vertical">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
@@ -120,8 +112,6 @@
                 </com.google.android.material.card.MaterialCardView>
 
             </LinearLayout>
-
-        </com.google.android.material.appbar.CollapsingToolbarLayout>
 
     </com.google.android.material.appbar.AppBarLayout>
 

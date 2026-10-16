@@ -10,6 +10,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.LayoutRes
 import androidx.appcompat.app.AlertDialog
@@ -235,6 +236,16 @@ class GroupSettingsActivity(
 
         }
 
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (needSave()) {
+                    AlertDialogFragment.show(this@GroupSettingsActivity)
+                } else {
+                    finish()
+                }
+            }
+        })
+
     }
 
     suspend fun saveAndExit() {
@@ -269,12 +280,6 @@ class GroupSettingsActivity(
     }
 
     override fun onOptionsItemSelected(item: MenuItem) = child.onOptionsItemSelected(item)
-
-    override fun onBackPressed() {
-        if (needSave()) {
-            UnsavedChangesDialogFragment().apply { key() }.show(supportFragmentManager, null)
-        } else super.onBackPressed()
-    }
 
     override fun onSupportNavigateUp(): Boolean {
         if (!super.onSupportNavigateUp()) finish()

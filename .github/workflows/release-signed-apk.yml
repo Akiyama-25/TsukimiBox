@@ -295,15 +295,19 @@ jobs:
           )
 
           {
-            echo "### Build Information"
-            echo "- **Tag**: \`${{ steps.meta.outputs.tag_name }}\`"
-            echo "- **Flavor**: \`${{ steps.meta.outputs.flavor }}\`"
-            echo "- **Commit**: \`${GITHUB_SHA}\`"
+            echo "### Build Information / 构建信息"
+            echo "- **Tag / 标签**: \`${{ steps.meta.outputs.tag_name }}\`"
+            echo "- **Flavor / 版本变体**: \`${{ steps.meta.outputs.flavor }}\`"
+            echo "- **Commit / 提交哈希**: \`${GITHUB_SHA}\`"
             if [ -n "$CERT_SHA256" ]; then
-              echo "- **APK Signing Certificate (SHA-256)**: \`${CERT_SHA256}\`"
+              echo "- **APK Signing Certificate (SHA-256) / APK 签名证书指纹**: \`${CERT_SHA256}\`"
             fi
             echo ""
-            echo "### SHA-256 Checksums"
+            echo "### Description / 版本说明"
+            echo "- **English**: Automated release build for TsukimiBox."
+            echo "- **中文**: TsukimiBox 自动构建发布版本。"
+            echo ""
+            echo "### SHA-256 Checksums / 校验和"
             echo "\`\`\`text"
             cat release_assets/SHA256SUMS.txt
             echo "\`\`\`"

@@ -214,7 +214,7 @@ class AppListActivity : ThemedActivity() {
         binding.list.itemAnimator = DefaultItemAnimator()
         binding.list.adapter = appsAdapter
 
-        ViewCompat.setOnApplyWindowInsetsListener(binding.root, ListListener)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.list, ListListener)
 
         binding.search.addTextChangedListener {
             appsAdapter.filter.filter(it?.toString() ?: "")
