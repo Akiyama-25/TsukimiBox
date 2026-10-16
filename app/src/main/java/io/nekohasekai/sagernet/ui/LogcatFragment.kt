@@ -39,7 +39,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
             binding.textview.breakStrategy = 0 // simple
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(binding.scrollview, ListListener)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.scroolview, ListListener)
 
         reloadSession()
     }

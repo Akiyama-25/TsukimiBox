@@ -89,7 +89,8 @@ class ConfigEditActivity : ThemedActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (dirty) {
-                    AlertDialogFragment.show(this@ConfigEditActivity)
+                    UnsavedChangesDialogFragment().apply { key() }
+                        .show(supportFragmentManager, null)
                 } else {
                     finish()
                 }

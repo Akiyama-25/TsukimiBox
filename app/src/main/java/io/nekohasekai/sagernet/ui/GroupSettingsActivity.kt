@@ -239,7 +239,8 @@ class GroupSettingsActivity(
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (needSave()) {
-                    AlertDialogFragment.show(this@GroupSettingsActivity)
+                    UnsavedChangesDialogFragment().apply { key() }
+                        .show(supportFragmentManager, null)
                 } else {
                     finish()
                 }

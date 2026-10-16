@@ -129,8 +129,9 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (dirty) {
-                    AlertDialogFragment.show(this@ProfileSettingsActivity)
+                if (DataStore.dirty) {
+                    UnsavedChangesDialogFragment().apply { key() }
+                        .show(supportFragmentManager, null)
                 } else {
                     finish()
                 }

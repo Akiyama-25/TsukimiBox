@@ -255,8 +255,9 @@ class RouteSettingsActivity(
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (DataStore.dirty) {
-                    AlertDialogFragment.show(this@RouteSettingsActivity)
+                if (needSave()) {
+                    UnsavedChangesDialogFragment().apply { key() }
+                        .show(supportFragmentManager, null)
                 } else {
                     finish()
                 }
