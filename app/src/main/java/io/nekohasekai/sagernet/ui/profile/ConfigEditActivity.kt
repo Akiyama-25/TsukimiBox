@@ -36,6 +36,18 @@ class ConfigEditActivity : ThemedActivity() {
     var key = Key.SERVER_CONFIG
     var useConfigStore = false
 
+    val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (dirty) {
+                UnsavedChangesDialogFragment().apply { key() }
+                    .show(supportFragmentManager, null)
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
+    }
+
     class UnsavedChangesDialogFragment : AlertDialogFragment<Empty, Empty>() {
         override fun AlertDialog.Builder.prepare(listener: DialogInterface.OnClickListener) {
             setTitle(R.string.unsaved_changes_prompt)
@@ -43,6 +55,10 @@ class ConfigEditActivity : ThemedActivity() {
                 (requireActivity() as ConfigEditActivity).saveAndExit()
             }
             setNegativeButton(R.string.no) { _, _ ->
+                (requireActivity() as? ConfigEditActivity)?.apply {
+                    dirty = false
+                    backCallback.isEnabled = false
+                }
                 requireActivity().finish()
             }
             setNeutralButton(android.R.string.cancel, null)
@@ -82,20 +98,13 @@ class ConfigEditActivity : ThemedActivity() {
                 if (!dirty) {
                     dirty = true
                     DataStore.dirty = true
+                    backCallback.isEnabled = true
                 }
             }
         }
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (dirty) {
-                    UnsavedChangesDialogFragment().apply { key() }
-                        .show(supportFragmentManager, null)
-                } else {
-                    finish()
-                }
-            }
-        })
+        onBackPressedDispatcher.addCallback(this, backCallback)
+        backCallback.isEnabled = dirty
 
         binding.actionTab.setOnClickListener {
             try {
@@ -168,6 +177,7 @@ class ConfigEditActivity : ThemedActivity() {
 
     fun saveAndExit() {
         formatText()?.let {
+            backCallback.isEnabled = false
             if (useConfigStore) {
                 DataStore.configurationStore.putString(key, it)
             } else {

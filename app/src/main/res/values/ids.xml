@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="tag_initial_bottom_padding" type="id" />
+    <item name="tag_initial_top_padding" type="id" />
 </resources>

@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
+import androidx.core.os.LocaleListCompat
+import androidx.core.view.ViewCompat
 import androidx.preference.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.Key
@@ -16,6 +19,7 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.widget.ListListener
 import moe.matsuri.nb4a.ui.*
 
 class SettingsPreferenceFragment : PreferenceFragmentCompat() {
@@ -29,6 +33,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         super.onViewCreated(view, savedInstanceState)
 
         listView.layoutManager = FixedLinearLayoutManager(listView)
+        listView.clipToPadding = false
+        ViewCompat.setOnApplyWindowInsetsListener(listView, ListListener)
     }
 
     private val reloadListener = Preference.OnPreferenceChangeListener { _, _ ->
@@ -40,6 +46,22 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
         addPreferencesFromResource(R.xml.global_preferences)
+
+        val appLanguage = findPreference<SimpleMenuPreference>(Key.APP_LANGUAGE)
+        if (appLanguage != null) {
+            appLanguage.value = DataStore.appLanguage
+            appLanguage.setOnPreferenceChangeListener { _, newValue ->
+                val lang = newValue as String
+                DataStore.appLanguage = lang
+                val localeList = if (lang.isEmpty()) {
+                    LocaleListCompat.getEmptyLocaleList()
+                } else {
+                    LocaleListCompat.forLanguageTags(lang)
+                }
+                AppCompatDelegate.setApplicationLocales(localeList)
+                true
+            }
+        }
 
         val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)!!
         appTheme.setOnPreferenceChangeListener { _, newTheme ->

@@ -188,6 +188,8 @@ class RouteSettingsActivity(
                 }
             }
             setNegativeButton(R.string.no) { _, _ ->
+                DataStore.dirty = false
+                (requireActivity() as? RouteSettingsActivity)?.backCallback?.isEnabled = false
                 requireActivity().finish()
             }
             setNeutralButton(android.R.string.cancel, null)
@@ -206,6 +208,18 @@ class RouteSettingsActivity(
                 requireActivity().finish()
             }
             setNegativeButton(R.string.no, null)
+        }
+    }
+
+    val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (needSave()) {
+                UnsavedChangesDialogFragment().apply { key() }
+                    .show(supportFragmentManager, null)
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
         }
     }
 
@@ -246,6 +260,7 @@ class RouteSettingsActivity(
                         .commit()
 
                     DataStore.dirty = false
+                    backCallback.isEnabled = false
                     DataStore.profileCacheStore.registerChangeListener(this@RouteSettingsActivity)
                 }
             }
@@ -253,16 +268,8 @@ class RouteSettingsActivity(
 
         }
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (needSave()) {
-                    UnsavedChangesDialogFragment().apply { key() }
-                        .show(supportFragmentManager, null)
-                } else {
-                    finish()
-                }
-            }
-        })
+        onBackPressedDispatcher.addCallback(this, backCallback)
+        backCallback.isEnabled = needSave()
 
     }
 
@@ -293,6 +300,7 @@ class RouteSettingsActivity(
             }
             ProfileManager.updateRule(entity.apply { serialize() })
         }
+        backCallback.isEnabled = false
         finish()
 
     }
@@ -319,6 +327,7 @@ class RouteSettingsActivity(
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         if (key != Key.PROFILE_DIRTY) {
             DataStore.dirty = true
+            backCallback.isEnabled = true
         }
     }
 

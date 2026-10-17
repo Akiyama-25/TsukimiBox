@@ -1,38 +1,43 @@
-name: Release Signed APK
+name: Release Signed APK / 发布已签名 APK
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release Tag (e.g. v1.4.2, leave empty to auto-detect from nb4a.properties)"
+        description: "Release Tag (e.g. v1.4.2, leave empty to auto-detect from nb4a.properties) / 发布标签 (例如 v1.4.2，留空则自动从 nb4a.properties 读取)"
         required: false
         default: ""
         type: string
       release_name:
-        description: "Release Title (leave empty to use 'TsukimiBox <tag>')"
+        description: "Release Title (leave empty to use 'TsukimiBox <tag>') / 发布标题 (留空则默认为 'TsukimiBox <tag>')"
         required: false
         default: ""
         type: string
       flavor:
-        description: "Build Flavor"
+        description: "Build Flavor / 构建变体"
         required: true
         default: "oss"
         type: choice
         options:
           - "oss"
           - "preview"
+      custom_description:
+        description: "Additional Custom Description (Markdown supported) / 额外自定义描述 (支持 Markdown 语法)"
+        required: false
+        default: ""
+        type: string
       prerelease:
-        description: "Mark as Pre-release"
+        description: "Mark as Pre-release / 标记为预发布版本 (Pre-release)"
         required: false
         default: false
         type: boolean
       draft:
-        description: "Save as Draft Release"
+        description: "Save as Draft Release / 保存为草稿发布 (Draft)"
         required: false
         default: false
         type: boolean
       save_keystore:
-        description: "Upload Keystore as Workflow Artifact (for backup)"
+        description: "Upload Keystore as Workflow Artifact (for backup) / 上传签名密钥库为 Artifact (用于备份)"
         required: false
         default: true
         type: boolean
@@ -42,22 +47,25 @@ permissions:
 
 jobs:
   release:
-    name: Build & Publish Signed APK
+    name: Build & Publish Signed APK / 构建与发布已签名 APK
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository / 检出代码仓库
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Resolve Release Metadata
+      - name: Resolve Release Metadata / 解析发布元数据
         id: meta
         env:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
           INPUT_FLAVOR: ${{ inputs.flavor }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          CUSTOM_DESCRIPTION: ${{ inputs.custom_description }}
         run: |
+          mkdir -p release_meta
+          echo "$CUSTOM_DESCRIPTION" > release_meta/custom_description.md
           PROP_VERSION=$(grep '^VERSION_NAME=' nb4a.properties | cut -d'=' -f2 | tr -d '\r\n ')
           PROP_PRE_VERSION=$(grep '^PRE_VERSION_NAME=' nb4a.properties | cut -d'=' -f2 | tr -d '\r\n ')
           FLAVOR="${INPUT_FLAVOR:-oss}"
@@ -100,18 +108,18 @@ jobs:
           echo "Flavor: ${FLAVOR}"
           echo "Pre-release: ${IS_PRERELEASE}"
 
-      - name: Setup Java 17
+      - name: Setup Java 17 / 配置 Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Golang
+      - name: Setup Golang / 配置 Golang
         uses: actions/setup-go@v5
         with:
           go-version: ^1.25
 
-      - name: Setup Android NDK & SDK Path
+      - name: Setup Android NDK & SDK Path / 配置 Android NDK 与 SDK 路径
         run: |
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -name "25.*" 2>/dev/null | head -n 1)
@@ -121,12 +129,12 @@ jobs:
           echo "ndk.dir=${NDK_PATH}" >> local.properties
           echo "Using NDK: ${NDK_PATH}"
 
-      - name: LibCore Status Check
+      - name: LibCore Status Check / 检查 LibCore 状态
         run: |
           find buildScript libcore/*.sh -type f 2>/dev/null | xargs cat 2>/dev/null | sha1sum > golang_status
           git ls-files libcore | xargs cat | sha1sum > libcore_status
 
-      - name: Cache LibCore Native AAR
+      - name: Cache LibCore Native AAR / 缓存 LibCore 原生 AAR
         id: cache-libcore
         uses: actions/cache@v4
         with:
@@ -135,19 +143,19 @@ jobs:
           restore-keys: |
             libcore-
 
-      - name: Build LibCore Native Core
+      - name: Build LibCore Native Core / 编译 LibCore 原生核心
         if: steps.cache-libcore.outputs.cache-hit != 'true'
         run: |
           ./run lib core
 
-      - name: Restore Signing Keystore Cache
+      - name: Restore Signing Keystore Cache / 恢复签名密钥库缓存
         id: cache-signing-keystore
         uses: actions/cache@v4
         with:
           path: .signing_cache
           key: tsukimibox-signing-keystore-v1
 
-      - name: Setup Signing Keystore
+      - name: Setup Signing Keystore / 配置签名密钥库
         id: keystore
         env:
           SECRET_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -242,11 +250,11 @@ jobs:
           } > keystore_backup/credentials.txt
           echo "Signing Keystore configuration completed successfully."
 
-      - name: Prepare Assets (GeoIP / GeoSite)
+      - name: Prepare Assets (GeoIP / GeoSite) / 准备路由规则资源 (GeoIP / GeoSite)
         run: |
           ./run init action gradle
 
-      - name: Gradle Cache
+      - name: Gradle Cache / 配置 Gradle 依赖缓存
         uses: actions/cache@v4
         with:
           path: ~/.gradle
@@ -254,7 +262,7 @@ jobs:
           restore-keys: |
             gradle-
 
-      - name: Build Signed APK
+      - name: Build Signed APK / 构建已签名 APK
         env:
           BUILD_PLUGIN: none
           FLAVOR: ${{ steps.meta.outputs.flavor }}
@@ -267,7 +275,7 @@ jobs:
           echo "Running ./gradlew app:${TASK}..."
           ./gradlew "app:${TASK}"
 
-      - name: Verify Signatures & Prepare Release Assets
+      - name: Verify Signatures & Prepare Release Assets / 验证签名并准备发布资产
         run: |
           echo "=== Verifying APK Signatures & Preparing Release Assets ==="
           mkdir -p release_assets
@@ -295,7 +303,7 @@ jobs:
           )
 
           {
-            echo "### Build Information / 构建信息"
+            echo "### 📦 Build Information / 构建信息"
             echo "- **Tag / 标签**: \`${{ steps.meta.outputs.tag_name }}\`"
             echo "- **Flavor / 版本变体**: \`${{ steps.meta.outputs.flavor }}\`"
             echo "- **Commit / 提交哈希**: \`${GITHUB_SHA}\`"
@@ -303,11 +311,16 @@ jobs:
               echo "- **APK Signing Certificate (SHA-256) / APK 签名证书指纹**: \`${CERT_SHA256}\`"
             fi
             echo ""
-            echo "### Description / 版本说明"
+            if [ -s release_meta/custom_description.md ] && grep -q '[^[:space:]]' release_meta/custom_description.md; then
+              echo "### 📝 Additional Description / 附加说明"
+              cat release_meta/custom_description.md
+              echo ""
+            fi
+            echo "### 📖 Description / 版本说明"
             echo "- **English**: Automated release build for TsukimiBox."
             echo "- **中文**: TsukimiBox 自动构建发布版本。"
             echo ""
-            echo "### SHA-256 Checksums / 校验和"
+            echo "### 🔒 SHA-256 Checksums / 校验和"
             echo "\`\`\`text"
             cat release_assets/SHA256SUMS.txt
             echo "\`\`\`"
@@ -317,7 +330,14 @@ jobs:
           ls -lh release_assets/
           cat release_notes.md
 
-      - name: Upload Signed APKs Artifact
+      - name: Upload Libcore AAR Artifact / 上传 Libcore AAR 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-libcore-aar
+          path: app/libs/libcore.aar
+          if-no-files-found: ignore
+
+      - name: Upload Signed APKs Artifact / 上传已签名 APK 构建产物
         uses: actions/upload-artifact@v4
         with:
           name: TsukimiBox-${{ steps.meta.outputs.tag_name }}-APKs
@@ -325,14 +345,14 @@ jobs:
             release_assets/*.apk
             release_assets/SHA256SUMS.txt
 
-      - name: Upload Keystore Artifact
+      - name: Upload Keystore Artifact / 上传签名密钥库备份产物
         if: always() && steps.keystore.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.save_keystore != false)
         uses: actions/upload-artifact@v4
         with:
           name: TsukimiBox-Signing-Keystore
           path: keystore_backup/
 
-      - name: Publish to GitHub Release
+      - name: Publish to GitHub Release / 发布至 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag_name }}

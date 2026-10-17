@@ -14,8 +14,10 @@ import android.os.PowerManager
 import android.os.StrictMode
 import android.os.UserManager
 import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import androidx.core.os.LocaleListCompat
 import go.Seq
 import io.nekohasekai.sagernet.bg.SagerConnection
 import io.nekohasekai.sagernet.database.DataStore
@@ -79,6 +81,15 @@ class SagerNet : Application(),
         }
 
         if (isMainProcess) {
+            val appLang = DataStore.appLanguage
+            val targetLocales = if (appLang.isEmpty()) {
+                LocaleListCompat.getEmptyLocaleList()
+            } else {
+                LocaleListCompat.forLanguageTags(appLang)
+            }
+            if (AppCompatDelegate.getApplicationLocales() != targetLocales) {
+                AppCompatDelegate.setApplicationLocales(targetLocales)
+            }
             Theme.apply(this)
             Theme.applyNightTheme()
             runOnDefaultDispatcher {

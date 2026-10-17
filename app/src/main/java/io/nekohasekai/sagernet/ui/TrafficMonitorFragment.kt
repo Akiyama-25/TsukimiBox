@@ -15,11 +15,13 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.Toolbar
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.widget.ListListener
 import io.nekohasekai.sagernet.database.traffic.AppTrafficSummary
 import io.nekohasekai.sagernet.database.traffic.TrafficDatabase
 import io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager
@@ -120,6 +122,8 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
 
         binding.rvBreakdown.layoutManager = LinearLayoutManager(requireContext())
         binding.rvAppTraffic.layoutManager = LinearLayoutManager(requireContext())
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.trafficScroll, ListListener)
 
         // Register date changed broadcast for 00:00 midnight rollover
         val filter = IntentFilter().apply {

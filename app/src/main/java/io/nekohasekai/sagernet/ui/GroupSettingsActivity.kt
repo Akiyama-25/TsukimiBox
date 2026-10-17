@@ -163,6 +163,18 @@ class GroupSettingsActivity(
         }
     }
 
+    val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (needSave()) {
+                UnsavedChangesDialogFragment().apply { key() }
+                    .show(supportFragmentManager, null)
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
+    }
+
     class UnsavedChangesDialogFragment : AlertDialogFragment<Empty, Empty>() {
         override fun AlertDialog.Builder.prepare(listener: DialogInterface.OnClickListener) {
             setTitle(R.string.unsaved_changes_prompt)
@@ -172,6 +184,8 @@ class GroupSettingsActivity(
                 }
             }
             setNegativeButton(R.string.no) { _, _ ->
+                DataStore.dirty = false
+                (requireActivity() as? GroupSettingsActivity)?.backCallback?.isEnabled = false
                 requireActivity().finish()
             }
             setNeutralButton(android.R.string.cancel, null)
@@ -230,22 +244,15 @@ class GroupSettingsActivity(
                         .commit()
 
                     DataStore.dirty = false
+                    backCallback.isEnabled = false
                     DataStore.profileCacheStore.registerChangeListener(this@GroupSettingsActivity)
                 }
             }
 
         }
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (needSave()) {
-                    UnsavedChangesDialogFragment().apply { key() }
-                        .show(supportFragmentManager, null)
-                } else {
-                    finish()
-                }
-            }
-        })
+        onBackPressedDispatcher.addCallback(this, backCallback)
+        backCallback.isEnabled = needSave()
 
     }
 
@@ -257,6 +264,7 @@ class GroupSettingsActivity(
         } else if (needSave()) {
             val entity = SagerDatabase.groupDao.getById(DataStore.editingId)
             if (entity == null) {
+                backCallback.isEnabled = false
                 finish()
                 return
             }
@@ -269,6 +277,7 @@ class GroupSettingsActivity(
             GroupManager.updateGroup(entity.apply { serialize() })
         }
 
+        backCallback.isEnabled = false
         finish()
 
     }
@@ -295,6 +304,7 @@ class GroupSettingsActivity(
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         if (key != Key.PROFILE_DIRTY) {
             DataStore.dirty = true
+            backCallback.isEnabled = needSave()
         }
     }
 

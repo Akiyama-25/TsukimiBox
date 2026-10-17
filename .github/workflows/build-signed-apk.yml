@@ -259,6 +259,13 @@ jobs:
           path: dist/universal/*.apk
           if-no-files-found: ignore
 
+      - name: Upload Libcore AAR Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TsukimiBox-libcore-aar
+          path: app/libs/libcore.aar
+          if-no-files-found: ignore
+
       - name: Upload Keystore Artifact
         if: always() && steps.keystore.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.save_keystore != false)
         uses: actions/upload-artifact@v4

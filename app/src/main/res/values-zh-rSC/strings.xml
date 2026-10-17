@@ -534,4 +534,9 @@
     <string name="traffic_monitor_sort_package">按包名</string>
     <string name="traffic_monitor_sort_uid">按 UID</string>
     <string name="traffic_monitor_app_empty">暂无应用代理流量记录</string>
+
+    <!-- Language Settings -->
+    <string name="cag_language">语言</string>
+    <string name="app_language">应用语言</string>
+    <string name="language_system">跟随系统</string>
 </resources>

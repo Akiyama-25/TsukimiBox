@@ -58,6 +58,8 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
                 }
             }
             setNegativeButton(R.string.no) { _, _ ->
+                DataStore.dirty = false
+                (requireActivity() as? ProfileSettingsActivity<*>)?.backCallback?.isEnabled = false
                 requireActivity().finish()
             }
             setNeutralButton(android.R.string.cancel, null)
@@ -82,6 +84,18 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
     companion object {
         const val EXTRA_PROFILE_ID = "id"
         const val EXTRA_IS_SUBSCRIPTION = "sub"
+    }
+
+    val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (DataStore.dirty) {
+                UnsavedChangesDialogFragment().apply { key() }
+                    .show(supportFragmentManager, null)
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
     }
 
     abstract fun createEntity(): T
@@ -127,16 +141,8 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
             }
         }
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (DataStore.dirty) {
-                    UnsavedChangesDialogFragment().apply { key() }
-                        .show(supportFragmentManager, null)
-                } else {
-                    finish()
-                }
-            }
-        })
+        onBackPressedDispatcher.addCallback(this, backCallback)
+        backCallback.isEnabled = DataStore.dirty
 
     }
 
@@ -148,6 +154,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
             ProfileManager.createProfile(editingGroup, createEntity().apply { serialize() })
         } else {
             if (proxyEntity == null) {
+                backCallback.isEnabled = false
                 finish()
                 return
             }
@@ -156,6 +163,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
             }
             ProfileManager.updateProfile(proxyEntity!!.apply { (requireBean() as T).serialize() })
         }
+        backCallback.isEnabled = false
         finish()
 
     }
@@ -197,6 +205,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         if (key != Key.PROFILE_DIRTY) {
             DataStore.dirty = true
+            backCallback.isEnabled = true
         }
     }
 
@@ -240,6 +249,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
             activity?.apply {
                 viewCreated(view, savedInstanceState)
                 DataStore.dirty = false
+                backCallback.isEnabled = false
                 DataStore.profileCacheStore.registerChangeListener(this)
             }
         }

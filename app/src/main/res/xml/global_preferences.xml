@@ -246,4 +246,15 @@
             app:key="showBottomBar"
             app:title="@string/show_bottom_bar" />
     </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/cag_language">
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue=""
+            app:entries="@array/app_languages"
+            app:entryValues="@array/app_language_values"
+            app:icon="@drawable/baseline_translate_24"
+            app:key="appLanguage"
+            app:title="@string/app_language"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
 </PreferenceScreen>

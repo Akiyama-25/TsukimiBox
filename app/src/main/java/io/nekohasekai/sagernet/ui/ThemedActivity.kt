@@ -35,14 +35,17 @@ abstract class ThemedActivity : AppCompatActivity {
 
         uiMode = resources.configuration.uiMode
 
-        if (Build.VERSION.SDK_INT >= 35) {
-            ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
-                val top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
-                findViewById<AppBarLayout>(R.id.appbar)?.apply {
-                    updatePadding(top = top)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            findViewById<AppBarLayout>(R.id.appbar)?.apply {
+                var initialPaddingTop = getTag(R.id.tag_initial_top_padding) as? Int
+                if (initialPaddingTop == null) {
+                    initialPaddingTop = paddingTop
+                    setTag(R.id.tag_initial_top_padding, initialPaddingTop)
                 }
-                ViewCompat.onApplyWindowInsets(v, insets)
+                updatePadding(top = initialPaddingTop + top)
             }
+            ViewCompat.onApplyWindowInsets(v, insets)
         }
     }
 

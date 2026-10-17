@@ -448,4 +448,9 @@
     <string name="traffic_monitor_sort_package">依套件</string>
     <string name="traffic_monitor_sort_uid">依 UID</string>
     <string name="traffic_monitor_app_empty">暫無應用程式代理流量記錄</string>
+
+    <!-- Language Settings -->
+    <string name="cag_language">語言</string>
+    <string name="app_language">應用語言</string>
+    <string name="language_system">跟隨系統</string>
 </resources>

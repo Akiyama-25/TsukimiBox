@@ -614,4 +614,9 @@
     <string name="traffic_monitor_sort_package">Package</string>
     <string name="traffic_monitor_sort_uid">UID</string>
     <string name="traffic_monitor_app_empty">No proxied traffic recorded for applications</string>
+
+    <!-- Language Settings -->
+    <string name="cag_language">Language</string>
+    <string name="app_language">App Language</string>
+    <string name="language_system">System Default</string>
 </resources>
