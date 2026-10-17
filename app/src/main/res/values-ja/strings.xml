@@ -329,7 +329,7 @@
     <string name="subscription_user_agent">User-Agent</string>
     <string name="confirm">確認</string>
     <string name="missing_plugin">プラグインがありません</string>
-    <string name="profile_requiring_plugin">プロファイル %s は %s プラグインが必要ですが、見つかりません。</string>
+    <string name="profile_requiring_plugin">プロファイル %1 は %2 プラグインが必要ですが、見つかりません。</string>
     <string name="action_learn_more">詳細</string>
     <string name="action_download">ダウンロード</string>
     <string name="install_from_play_store">Google Play からインストール</string>
@@ -345,7 +345,7 @@
     <string name="subscription_update_message">%s を更新中…</string>
     <string name="group_filter">フィルター</string>
     <string name="subscription_used">%s 使用済み</string>
-    <string name="subscription_traffic">%s 使用済み / 残り %s</string>
+    <string name="subscription_traffic">%1 使用済み / 残り %2</string>
     <string name="subscription_expire">有効期限：%s</string>
     <string name="subscription_import">サブスクリプションのインポート</string>
     <string name="subscription_import_message">サブスクリプション %s をインポートしますか？信頼できない提供元の場合、IP アドレスや行動履歴が漏洩する恐れがあります。</string>
@@ -368,7 +368,7 @@
     <string name="group_order_origin">デフォルト順</string>
     <string name="group_order_by_name">名前順</string>
     <string name="group_order_by_delay">遅延順</string>
-    <string name="plugin_exists_but_on_shit_system">プロファイル %s は %s プラグインが必要ですが、お使いの端末メーカーによって Android が改変されているためプラグインが機能しません。</string>
+    <string name="plugin_exists_but_on_shit_system">プロファイル %1 は %2 プラグインが必要ですが、お使いの端末メーカーによって Android が改変されているためプラグインが機能しません。</string>
     <string name="shadowsocks_plugin_simple_obfs">Simple Obfs (Shadowsocks Android プラグイン)</string>
     <string name="shadowsocks_plugin_v2ray">V2Ray (Shadowsocks Android プラグイン)</string>
     <string name="traffic_uplink" translatable="false">%s | %s/s ↑</string>
