@@ -134,10 +134,25 @@ fun buildConfig(
     val bypassDNSBeans = hashSetOf<AbstractBean>()
     val isVPN = DataStore.serviceMode == Key.MODE_VPN
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
+    fun normalizeDnsAddress(address: String): String {
+        val trimmed = address.trim()
+        if (trimmed.startsWith("https://", ignoreCase = true)) {
+            val noProto = trimmed.substring(8)
+            val slashIndex = noProto.indexOf('/')
+            if (slashIndex == -1 || slashIndex == noProto.length - 1) {
+                val hostPart = if (slashIndex == -1) noProto else noProto.substring(0, slashIndex)
+                return "https://$hostPart/dns-query"
+            }
+        }
+        return trimmed
+    }
+
     val remoteDns = DataStore.remoteDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
+        .map { normalizeDnsAddress(it) }
     val directDNS = DataStore.directDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
+        .map { normalizeDnsAddress(it) }
     val enableDnsRouting = DataStore.enableDnsRouting
     val useFakeDns = DataStore.enableFakeDns && !forTest
     val needSniff = DataStore.trafficSniffing > 0
