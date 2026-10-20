@@ -177,6 +177,8 @@ jobs:
           echo "Signing Keystore configuration completed successfully."
 
       - name: Prepare Assets (GeoIP / GeoSite)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./run init action gradle
 
