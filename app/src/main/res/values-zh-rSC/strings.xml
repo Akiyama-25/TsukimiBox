@@ -329,7 +329,7 @@
     <string name="subscription_user_agent">用户代理</string>
     <string name="confirm">确认</string>
     <string name="missing_plugin">缺少插件</string>
-    <string name="profile_requiring_plugin">配置 %1 需要插件 %2, 但找不到.</string>
+    <string name="profile_requiring_plugin">配置 %1$s 需要插件 %2$s, 但找不到.</string>
     <string name="action_learn_more">了解更多</string>
     <string name="action_download">下载</string>
     <string name="install_from_play_store">从 Play Store 安装</string>
@@ -345,7 +345,7 @@
     <string name="subscription_update_message">正更新 %s …</string>
     <string name="group_filter">筛选</string>
     <string name="subscription_used">已用 %s</string>
-    <string name="subscription_traffic">已用 %1 / 剩余 %2</string>
+    <string name="subscription_traffic">已用 %1$s / 剩余 %2$s</string>
     <string name="subscription_expire">过期: %s</string>
     <string name="subscription_import">导入订阅</string>
     <string name="subscription_import_message">确认要导入订阅 %s？如果来源不可信, 您的 IP 和行为将被泄露.</string>
