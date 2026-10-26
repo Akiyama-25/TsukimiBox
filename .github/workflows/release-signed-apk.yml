@@ -304,33 +304,19 @@ jobs:
             sha256sum *.apk > SHA256SUMS.txt
           )
 
-          {
-            echo "### 📦 Build Information / 构建信息"
-            echo "- **Tag / 标签**: \`${{ steps.meta.outputs.tag_name }}\`"
-            echo "- **Flavor / 版本变体**: \`${{ steps.meta.outputs.flavor }}\`"
-            echo "- **Commit / 提交哈希**: \`${GITHUB_SHA}\`"
-            if [ -n "$CERT_SHA256" ]; then
-              echo "- **APK Signing Certificate (SHA-256) / APK 签名证书指纹**: \`${CERT_SHA256}\`"
-            fi
-            echo ""
-            if [ -s release_meta/custom_description.md ] && grep -q '[^[:space:]]' release_meta/custom_description.md; then
-              echo "### 📝 Additional Description / 附加说明"
-              cat release_meta/custom_description.md
-              echo ""
-            fi
-            echo "### 📖 Description / 版本说明"
-            echo "- **English**: Automated release build for TsukimiBox."
-            echo "- **中文**: TsukimiBox 自动构建发布版本。"
-            echo ""
-            echo "### 🔒 SHA-256 Checksums / 校验和"
-            echo "\`\`\`text"
-            cat release_assets/SHA256SUMS.txt
-            echo "\`\`\`"
-          } > release_notes.md
+          : > release_notes.md
+          if [ -s release_meta/custom_description.md ] && grep -q '[^[:space:]]' release_meta/custom_description.md; then
+            cat release_meta/custom_description.md > release_notes.md
+          fi
 
           echo "=== Prepared Release Assets ==="
           ls -lh release_assets/
-          cat release_notes.md
+          if [ -s release_notes.md ]; then
+            echo "=== Release Notes ==="
+            cat release_notes.md
+          else
+            echo "Release notes left empty for manual entry."
+          fi
 
       - name: Upload Libcore AAR Artifact / 上传 Libcore AAR 构建产物
         uses: actions/upload-artifact@v4
@@ -361,7 +347,7 @@ jobs:
           name: ${{ steps.meta.outputs.release_name }}
           target_commitish: ${{ github.sha }}
           body_path: release_notes.md
-          generate_release_notes: true
+          generate_release_notes: false
           draft: ${{ inputs.draft || false }}
           prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}
           files: |
