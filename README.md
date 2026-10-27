@@ -1,12 +1,24 @@
 # TsukimiBox 
 - 基于[Nekobox 1.4.2](https://github.com/MatsuriDayo/NekoBoxForAndroid)修改
 - 加入了代理流量监控，不必在Web Dashboard查看，且可持续储存。
+- 支持接管、独立分流并统计 **Root (`UID=0`)** 进程的网络流量（含 TCP、UDP 与 DNS）。
 - Based on a modified version of [Nekobox](https://github.com/MatsuriDayo/NekoBoxForAndroid).
 - Added proxy traffic monitoring, eliminating the need to check the Web Dashboard, with support for persistent data storage.
+- Added support for taking over, routing, and monitoring **Root (`UID=0`)** process network traffic (including TCP, UDP, and DNS).
 
 sing-box / universal proxy toolchain for Android.
 
 一款使用 sing-box 的 Android 通用代理软件.
+
+## Root (`UID=0`) 流量接管 / Root (`UID=0`) Traffic Takeover
+
+* **分应用代理（Per-App Proxy）**：在“分应用代理”列表顶部置顶提供 `Root (UID=0)` 选项。当在代理模式（白名单）下勾选 `Root (UID=0)` 时，应用会自动将 `VpnService` 规则反转为排除未勾选应用（`addDisallowedApplication`），从而突破 Android `PackageManager` 无法直接对无 APK 的 `UID=0` 调用 `addAllowedApplication` 的限制；在绕过模式（黑名单）下勾选时亦会自动反转以绕过 `UID=0` 流量。
+* **强制策略路由（可选 Root 权限）**：在“设置 → 路由设置 → 强制接管 Root (UID=0) 流量”开启后，VPN 启动时会通过 `su` 自动向内核注入高优先级 IPv4/IPv6 策略路由规则（`ip rule pref 9990 uidrange 0-0 fwmark 0x0/0x20000`）指向当前活跃的 `tun` 路由表，并在 VPN 停止时自动清理。
+* **路由分流与流量统计**：支持在自定义路由规则（Route）中选择 `Root (UID=0)` 对其 TCP、UDP 及 DNS 请求（`user_id: [0]`）进行独立分流，并在“流量监控”页面实时显示与持久化统计 `Root (UID=0)` 的代理流量。
+
+* **Per-App Proxy**: Provides a pinned `Root (UID=0)` entry at the top of the Per-App Proxy list. Selecting `Root (UID=0)` in Proxy (whitelist) mode automatically inverts `VpnService` rules to `addDisallowedApplication` for unselected apps so `UID=0` traffic stays inside the TUN interface; selecting it in Bypass (blacklist) mode inverts to `addAllowedApplication` so `UID=0` bypasses the VPN.
+* **Policy Routing Override (Optional Root)**: When "Force Root (UID=0) Traffic Takeover" is enabled under Route Settings, starting the VPN automatically injects high-priority IPv4/IPv6 policy routing rules (`ip rule pref 9990 uidrange 0-0 fwmark 0x0/0x20000`) via `su` into the active `tun` routing table and cleans them up when stopping.
+* **Custom Routing & Traffic Monitoring**: Supports independent routing rules (`user_id: [0]`) for `Root (UID=0)` across TCP, UDP, and DNS queries, and tracks real-time and historical `Root (UID=0)` traffic in the Traffic Monitor.
 
 ## 支持的代理协议 / Supported Proxy Protocols
 
