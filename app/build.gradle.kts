@@ -36,6 +36,13 @@ android {
     androidResources {
         generateLocaleConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            if (!file("libs/libcore.aar").exists()) {
+                java.srcDir("src/libcoreStub/java")
+            }
+        }
+    }
 }
 
 dependencies {

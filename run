@@ -10,7 +10,7 @@ for e in $@; do
   PARAMS[$INDEX]=$e
   INDEX=$INDEX+1
   shift
-  if [ -x "${TARGET}.sh" ]; then
+  if [ -f "${TARGET}.sh" ]; then
     EXEC="${TARGET}.sh"
     PARAMS=()
     INDEX=0
@@ -18,4 +18,4 @@ for e in $@; do
 done
 
 echo ">> $EXEC"
-exec "$EXEC" $PARAMS
+exec bash "$EXEC" $PARAMS

@@ -121,6 +121,7 @@ jobs:
 
       - name: Setup Android NDK & SDK Path / 配置 Android NDK 与 SDK 路径
         run: |
+          chmod -R +x run gradlew buildScript libcore 2>/dev/null || true
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           NDK_PATH=$(find ${ANDROID_HOME}/ndk -maxdepth 1 -name "25.*" 2>/dev/null | head -n 1)
           if [ -z "$NDK_PATH" ]; then
@@ -146,7 +147,9 @@ jobs:
       - name: Build LibCore Native Core / 编译 LibCore 原生核心
         if: steps.cache-libcore.outputs.cache-hit != 'true'
         run: |
-          ./run lib core
+          if [ ! -f app/libs/libcore.aar ]; then
+            bash ./run lib core
+          fi
 
       - name: Restore Signing Keystore Cache / 恢复签名密钥库缓存
         id: cache-signing-keystore
@@ -254,7 +257,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./run init action gradle
+          bash ./run init action gradle
 
       - name: Gradle Cache / 配置 Gradle 依赖缓存
         uses: actions/cache@v4
@@ -275,7 +278,7 @@ jobs:
             TASK="assembleOssRelease"
           fi
           echo "Running ./gradlew app:${TASK}..."
-          ./gradlew "app:${TASK}"
+          bash ./gradlew "app:${TASK}"
 
       - name: Verify Signatures & Prepare Release Assets / 验证签名并准备发布资产
         run: |
