@@ -395,6 +395,16 @@ class TrafficMonitorFragment : ToolbarFragment(R.layout.layout_traffic_monitor),
         val cached = appMetaCache[packageName]
         if (cached != null) return cached
 
+        if (uid == PackageCache.ROOT_UID || packageName == PackageCache.ROOT_PACKAGE_NAME || packageName == "uid_0") {
+            val meta = AppMeta(
+                name = PackageCache.loadLabel(PackageCache.ROOT_PACKAGE_NAME),
+                icon = PackageCache.loadIcon(pm, PackageCache.ROOT_PACKAGE_NAME)
+            )
+            appMetaCache[packageName] = meta
+            appMetaCache[PackageCache.ROOT_PACKAGE_NAME] = meta
+            return meta
+        }
+
         var targetPkg = packageName
         var appInfo: ApplicationInfo? = null
 

@@ -63,8 +63,12 @@ class AppManagerActivity : ThemedActivity() {
         private val pm: PackageManager, private val appInfo: ApplicationInfo,
         val packageName: String,
     ) {
-        val name: CharSequence = appInfo.loadLabel(pm)    // cached for sorting
-        val icon: Drawable get() = appInfo.loadIcon(pm)
+        val name: CharSequence = if (packageName == PackageCache.ROOT_PACKAGE_NAME || appInfo.uid == PackageCache.ROOT_UID) {
+            PackageCache.loadLabel(packageName)
+        } else {
+            appInfo.loadLabel(pm)
+        }
+        val icon: Drawable get() = PackageCache.loadIcon(pm, packageName, appInfo)
         val uid get() = appInfo.uid
         val sys get() = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
     }
@@ -110,7 +114,7 @@ class AppManagerActivity : ThemedActivity() {
             apps = cachedApps.mapNotNull { (packageName, packageInfo) ->
                 coroutineContext[Job]!!.ensureActive()
                 packageInfo.applicationInfo?.let { ProxiedApp(packageManager, it, packageName) }
-            }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
+            }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.uid != PackageCache.ROOT_UID }, { it.name.toString() }))
         }
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int) =
@@ -137,7 +141,7 @@ class AppManagerActivity : ThemedActivity() {
                         constraint, true
                     ) || it.uid.toString().contains(constraint)
                 }
-                if (!sysApps) filteredApps = filteredApps.filter { !it.sys }
+                if (!sysApps) filteredApps = filteredApps.filter { !it.sys || it.uid == PackageCache.ROOT_UID }
                 count = filteredApps.size
                 values = filteredApps
             }

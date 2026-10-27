@@ -551,4 +551,7 @@
     <string name="cag_language">语言</string>
     <string name="app_language">应用语言</string>
     <string name="language_system">跟随系统</string>
+    <string name="root_superuser_label">Root (系统超级用户)</string>
+    <string name="root_traffic_takeover">强制接管 Root 流量 (ip rule)</string>
+    <string name="root_traffic_takeover_summary">VPN 启动时通过 su 注入针对 UID=0 的高优先级策略路由，防止系统规则绕过 Root 流量</string>
 </resources>

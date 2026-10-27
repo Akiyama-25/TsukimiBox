@@ -241,6 +241,9 @@ class TrafficLooper
     }
 
     private fun resolvePackageName(uid: Int): String {
+        if (uid == PackageCache.ROOT_UID) {
+            return PackageCache.ROOT_PACKAGE_NAME
+        }
         val pkgs = PackageCache.uidMap[uid]
         if (!pkgs.isNullOrEmpty()) {
             return pkgs.first()

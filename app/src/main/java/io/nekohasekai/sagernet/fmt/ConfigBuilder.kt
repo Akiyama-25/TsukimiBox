@@ -508,7 +508,11 @@ fun buildConfig(
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                PackageCache[it]?.takeIf { uid -> uid >= 1000 }
+                if (it == PackageCache.ROOT_PACKAGE_NAME) {
+                    PackageCache.ROOT_UID
+                } else {
+                    PackageCache[it]?.takeIf { uid -> uid == PackageCache.ROOT_UID || uid >= 1000 }
+                }
             }.toHashSet().filterNotNull()
             val ruleSets = mutableListOf<RuleSet>()
 

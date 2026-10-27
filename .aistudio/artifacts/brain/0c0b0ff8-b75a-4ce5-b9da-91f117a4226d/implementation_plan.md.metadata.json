@@ -1,0 +1,6 @@
+{
+  "summary":  "TsukimiBox 接管 Root (UID=0) 流量的完整技术架构与用户体验实现方案，涵盖 VpnService 黑名单反转机制、可选 Root 策略路由 (ip rule) 注入、虚拟 Root 应用包映射、分应用代理、路由规则 UID=0 分流（含 TCP/UDP/DNS）以及流量监控统计展示。",
+  "updatedAt":  "2026-10-27T07:34:55.353133692Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

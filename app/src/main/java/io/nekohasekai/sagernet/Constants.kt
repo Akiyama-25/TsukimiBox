@@ -31,6 +31,7 @@ object Key {
     const val BYPASS_MODE = "bypassMode"
     const val INDIVIDUAL = "individual"
     const val METERED_NETWORK = "meteredNetwork"
+    const val ROOT_TRAFFIC_TAKEOVER = "rootTrafficTakeover"
 
     const val TRAFFIC_SNIFFING = "trafficSniffing"
     const val RESOLVE_DESTINATION = "resolveDestination"

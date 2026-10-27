@@ -42,23 +42,62 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
     override fun findConnectionOwner(
         ipProto: Int, srcIp: String, srcPort: Int, destIp: String, destPort: Int
     ): Int {
-        val uid = try {
+        var uid = try {
             SagerNet.connectivity.getConnectionOwnerUid(
                 ipProto, InetSocketAddress(srcIp, srcPort), InetSocketAddress(destIp, destPort)
             )
         } catch (_: Throwable) {
-            0
+            -1
         }
-        if (uid > 0) {
+        if (uid < 0) {
+            uid = resolveUidFromProcNet(ipProto, srcPort)
+        }
+        if (uid >= 0) {
             io.nekohasekai.sagernet.database.traffic.TrafficMonitorManager.recordUidConnection(uid)
         }
         return uid
     }
 
+    private fun resolveUidFromProcNet(ipProto: Int, srcPort: Int): Int {
+        if (srcPort <= 0) return -1
+        val portHex = String.format("%04X", srcPort)
+        val files = when (ipProto) {
+            6 -> arrayOf("/proc/net/tcp", "/proc/net/tcp6")
+            17 -> arrayOf("/proc/net/udp", "/proc/net/udp6")
+            else -> return -1
+        }
+        for (path in files) {
+            try {
+                java.io.File(path).bufferedReader().useLines { lines ->
+                    for (line in lines.drop(1)) {
+                        val parts = line.trim().split(Regex("\\s+"))
+                        if (parts.size > 7) {
+                            val localAddr = parts[1]
+                            if (localAddr.endsWith(":$portHex", ignoreCase = true)) {
+                                val parsedUid = parts[7].toIntOrNull()
+                                if (parsedUid != null && parsedUid >= 0) {
+                                    return parsedUid
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return -1
+    }
+
     override fun packageNameByUid(uid: Int): String {
         PackageCache.awaitLoadSync()
 
-        if (uid <= 1000L) {
+        if (uid == PackageCache.ROOT_UID) {
+            return PackageCache.ROOT_PACKAGE_NAME
+        }
+        if (uid < 0) {
+            return "unknown"
+        }
+        if (uid <= 1000) {
             return "android"
         }
 
@@ -76,8 +115,9 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
     }
 
     override fun uidByPackageName(packageName: String): Int {
+        if (packageName == PackageCache.ROOT_PACKAGE_NAME) return PackageCache.ROOT_UID
         PackageCache.awaitLoadSync()
-        return PackageCache[packageName] ?: 0
+        return PackageCache[packageName] ?: -1
     }
 
     // TODO: 'getter for connectionInfo: WifiInfo!' is deprecated

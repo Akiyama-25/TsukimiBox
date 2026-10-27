@@ -41,7 +41,7 @@ object TrafficMonitorManager {
     fun getSlotTimestamp(timeMs: Long): Long = timeMs - (timeMs % SLOT_DURATION_MS)
 
     fun recordUidConnection(uid: Int) {
-        if (uid <= 1000) return
+        if (uid != 0 && uid <= 1000) return
         val now = System.currentTimeMillis()
         synchronized(recentUidStats) {
             val stat = recentUidStats.getOrPut(uid) { UidConnectionStat(now, 0) }
@@ -66,7 +66,7 @@ object TrafficMonitorManager {
             }
 
             val validEntries = recentUidStats.filter { (uid, _) ->
-                uid != excludeUid && uid > 1000
+                uid != excludeUid && (uid == 0 || uid > 1000)
             }
             if (validEntries.isEmpty()) return emptyMap()
 
@@ -91,7 +91,7 @@ object TrafficMonitorManager {
         val now = System.currentTimeMillis()
         synchronized(recentUidStats) {
             return recentUidStats.filter { (uid, stat) ->
-                now - stat.lastSeen <= withinMs && uid > 1000
+                now - stat.lastSeen <= withinMs && (uid == 0 || uid > 1000)
             }.keys.toSet()
         }
     }

@@ -619,4 +619,9 @@
     <string name="cag_language">Language</string>
     <string name="app_language">App Language</string>
     <string name="language_system">System Default</string>
+
+    <!-- Root Traffic Takeover -->
+    <string name="root_superuser_label">Root (Superuser)</string>
+    <string name="root_traffic_takeover">Force Root Traffic Takeover (ip rule)</string>
+    <string name="root_traffic_takeover_summary">Inject high-priority ip rule for UID=0 via su when VPN is active</string>
 </resources>

@@ -15,6 +15,7 @@ import io.nekohasekai.sagernet.fmt.LOCALHOST
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.ui.VpnRequestActivity
+import io.nekohasekai.sagernet.utils.PackageCache
 import io.nekohasekai.sagernet.utils.Subnet
 import android.net.VpnService as BaseVpnService
 
@@ -52,6 +53,7 @@ class VpnService : BaseVpnService(),
 
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
+        RootRouteController.disableRootRouting()
         conn?.close()
         conn = null
         super.killProcesses()
@@ -126,13 +128,30 @@ class VpnService : BaseVpnService(),
         updateUnderlyingNetwork(builder)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(metered)
 
-        // app route
+        // app route & Root (UID=0) takeover logic
         val packageName = packageName
         val proxyApps = DataStore.proxyApps
+        val forceRootTakeover = DataStore.rootTrafficTakeover
         var bypass = DataStore.bypass
         val workaroundSYSTEM = false /* DataStore.tunImplementation == TunImplementation.SYSTEM */
-        val needBypassRootUid = workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
+        val needBypassRootUid = !forceRootTakeover && (workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
             it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
+        })
+
+        val selectedApps = if (proxyApps) {
+            DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
+        } else {
+            emptySet()
+        }
+        val rootSelectedInList = selectedApps.contains(PackageCache.ROOT_PACKAGE_NAME)
+
+        // Determine if UID=0 should be routed into VPN
+        val shouldProxyRoot = when {
+            needBypassRootUid -> false
+            forceRootTakeover -> true
+            !proxyApps -> true
+            bypass -> !rootSelectedInList // In bypass mode, unselected apps (including root) are proxied
+            else -> rootSelectedInList    // In proxy (whitelist) mode, selected apps (including root) are proxied
         }
 
         if (proxyApps || needBypassRootUid) {
@@ -149,12 +168,22 @@ class VpnService : BaseVpnService(),
                 }
             }
             if (proxyApps) {
-                individual.addAll(DataStore.individual.split('\n').filter { it.isNotBlank() })
-                if (bypass && needBypassRootUid) {
-                    val individualNew = allApps.toMutableList()
-                    individualNew.removeAll(individual)
+                individual.addAll(selectedApps)
+                individual.remove(PackageCache.ROOT_PACKAGE_NAME)
+
+                if (!bypass && shouldProxyRoot) {
+                    // Invert Whitelist -> Blacklist (addDisallowedApplication) so UID=0 remains inside VPN
+                    val unselectedApps = allApps.toMutableSet()
+                    unselectedApps.removeAll(individual)
                     individual.clear()
-                    individual.addAll(individualNew)
+                    individual.addAll(unselectedApps)
+                    bypass = true
+                } else if (bypass && !shouldProxyRoot) {
+                    // Invert Blacklist -> Whitelist (addAllowedApplication) so UID=0 is excluded from VPN
+                    val allowedApps = allApps.toMutableSet()
+                    allowedApps.removeAll(individual)
+                    individual.clear()
+                    individual.addAll(allowedApps)
                     bypass = false
                 }
             } else {
@@ -165,8 +194,9 @@ class VpnService : BaseVpnService(),
             val added = mutableListOf<String>()
 
             individual.apply {
-                // Allow Matsuri itself using VPN.
+                // Allow TsukimiBox itself using VPN (protected via VpnService.protect).
                 remove(packageName)
+                remove(PackageCache.ROOT_PACKAGE_NAME)
                 if (!bypass) add(packageName)
             }.forEach {
                 try {
@@ -182,9 +212,9 @@ class VpnService : BaseVpnService(),
             }
 
             if (bypass) {
-                Logs.d("Add bypass: ${added.joinToString(", ")}")
+                Logs.d("Add bypass (rootProxied=$shouldProxyRoot): ${added.joinToString(", ")}")
             } else {
-                Logs.d("Add allow: ${added.joinToString(", ")}")
+                Logs.d("Add allow (rootProxied=$shouldProxyRoot): ${added.joinToString(", ")}")
             }
         }
 
@@ -195,6 +225,15 @@ class VpnService : BaseVpnService(),
         metered = DataStore.meteredNetwork
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
+
+        if (shouldProxyRoot && forceRootTakeover) {
+            RootRouteController.enableRootRouting(
+                ipv6Enabled = ipv6Mode != IPv6Mode.DISABLE,
+                privateVlan4Client = PRIVATE_VLAN4_CLIENT
+            )
+        } else {
+            RootRouteController.disableRootRouting()
+        }
 
         return conn!!.fd
     }
@@ -211,6 +250,7 @@ class VpnService : BaseVpnService(),
     override fun onRevoke() = stopRunner()
 
     override fun onDestroy() {
+        RootRouteController.disableRootRouting()
         DataStore.vpnService = null
         super.onDestroy()
         data.binder.close()
