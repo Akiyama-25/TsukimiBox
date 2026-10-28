@@ -19,7 +19,7 @@ func extractAssets() {
 	extract := func(name string) {
 		err := extractAssetName(name, useOfficialAssets)
 		if err != nil {
-			log.Println("Extract", geoipDat, "failed:", err)
+			log.Println("Extract", name, "failed:", err)
 		}
 	}
 
@@ -30,7 +30,7 @@ func extractAssets() {
 
 // 这里解压的是 apk 里面的
 func extractAssetName(name string, useOfficialAssets bool) error {
-	// 支持非官方源的，就是 replaceable，放 Android 目录
+	// 支持非官方源的，就是 replaceable，放 files 目录
 	// 不支持非官方源的，就放 file 目录
 	replaceable := true
 
@@ -55,6 +55,10 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 		dir = externalAssetsPath
 	}
 	dstName := dir + name
+
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("mkdir dir: %v", err)
+	}
 
 	var localVersion string
 	var assetVersion string
@@ -138,10 +142,14 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 	}
 
 	if f, err := asset.Open(apkPrefix + name + ".xz"); err == nil {
-		extractXz(f)
+		if err := extractXz(f); err != nil {
+			return err
+		}
 	} else if f, err := asset.Open("yacd.zip"); err == nil {
 		os.RemoveAll(dstName)
-		extracZip(f, internalAssetsPath)
+		if err := extracZip(f, internalAssetsPath); err != nil {
+			return err
+		}
 		m, err := filepath.Glob(internalAssetsPath + "/Yacd-*")
 		if err != nil {
 			return fmt.Errorf("glob Yacd: %v", err)

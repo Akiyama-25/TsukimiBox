@@ -108,7 +108,7 @@ class AssetsActivity : ThemedActivity() {
                 alert(getString(R.string.route_not_asset, fileName)).show()
                 return@registerForActivityResult
             }
-            val filesDir = getExternalFilesDir(null) ?: filesDir
+            val filesDir = filesDir
 
             runOnDefaultDispatcher {
                 val outFile = File(filesDir, fileName).apply {
@@ -151,7 +151,7 @@ class AssetsActivity : ThemedActivity() {
         }
 
         fun reloadAssets() {
-            val filesDir = getExternalFilesDir(null) ?: filesDir
+            val filesDir = filesDir
             val files = filesDir.listFiles()
                 ?.filter { it.isFile && it.name.endsWith(".db") && it.name !in assetNames }
             assets.clear()

@@ -48,7 +48,23 @@ class SagerNet : Application(),
 
     private val nativeInterface = NativeInterface()
 
-    val externalAssets: File by lazy { getExternalFilesDir(null) ?: filesDir }
+    val externalAssets: File by lazy {
+        val legacyDir = getExternalFilesDir(null)
+        if (legacyDir != null && legacyDir.exists()) {
+            val legacyFiles = legacyDir.listFiles()
+            if (legacyFiles != null) {
+                for (file in legacyFiles) {
+                    if (file.isFile && (file.name.endsWith(".db") || file.name.endsWith(".txt"))) {
+                        val target = File(filesDir, file.name)
+                        if (!target.exists()) {
+                            file.copyTo(target, overwrite = true)
+                        }
+                    }
+                }
+            }
+        }
+        filesDir
+    }
     val process: String = JavaUtil.getProcessName()
     private val isMainProcess = process == BuildConfig.APPLICATION_ID
     val isBgProcess = process.endsWith(":bg")
