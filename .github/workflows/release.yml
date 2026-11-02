@@ -14,7 +14,7 @@ on:
 jobs:
   libcore:
     name: Native Build (LibCore)
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
           bash ./run lib core
   build:
     name: Build OSS APK
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     needs:
       - libcore
     steps:
@@ -82,7 +82,7 @@ jobs:
   publish:
     name: Publish Release
     if: github.event.inputs.publish != 'y'
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     needs: build
     steps:
       - name: Checkout
@@ -104,7 +104,7 @@ jobs:
   play:
     name: Build Play Bundle
     if: github.event.inputs.play != 'y'
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     needs:
       - libcore
     steps:

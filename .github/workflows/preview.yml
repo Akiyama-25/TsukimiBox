@@ -5,7 +5,7 @@ on:
 jobs:
   libcore:
     name: Native Build (LibCore)
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
           bash ./run lib core
   build:
     name: Build OSS APK
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     needs:
       - libcore
     steps:

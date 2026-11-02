@@ -48,7 +48,7 @@ permissions:
 jobs:
   release:
     name: Build & Publish Signed APK / 构建与发布已签名 APK
-    runs-on: instabox-medium
+    runs-on: [self-hosted, instabox]
     steps:
       - name: Checkout Repository / 检出代码仓库
         uses: actions/checkout@v4
