@@ -29,7 +29,7 @@ permissions:
 jobs:
   build:
     name: Build Signed APK
-    runs-on: [self-hosted, instabox]
+    runs-on: [self-hosted, android-builder]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
