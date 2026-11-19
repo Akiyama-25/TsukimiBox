@@ -141,26 +141,22 @@ class VpnService : BaseVpnService(),
             it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
         })
 
-        val selectedApps = if (proxyApps) {
-            DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
-        } else {
-            emptySet()
-        }
-        val rootSelectedInList = selectedApps.contains(PackageCache.ROOT_PACKAGE_NAME)
-
-        // Determine if UID=0 should be routed into VPN
-        val shouldProxyRoot = when {
-            needBypassRootUid -> false
-            forceRootTakeover -> true
-            !proxyApps -> true
-            bypass -> !rootSelectedInList // In bypass mode, unselected apps (including root) are proxied
-            else -> rootSelectedInList    // In proxy (whitelist) mode, selected apps (including root) are proxied
-        }
-
         if (proxyApps || needBypassRootUid) {
             val individual = mutableSetOf<String>()
             val allApps by lazy {
-                packageManager.getInstalledPackages(PackageManager.GET_PERMISSIONS).filter {
+                val pm = packageManager
+                val packages = try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+                    }
+                } catch (e: Exception) {
+                    Logs.w("Failed to get installed packages with permissions: ${e.message}")
+                    emptyList()
+                }
+                packages.filter {
                     when (it.packageName) {
                         packageName -> false
                         "android" -> true
@@ -171,22 +167,15 @@ class VpnService : BaseVpnService(),
                 }
             }
             if (proxyApps) {
-                individual.addAll(selectedApps)
+                individual.addAll(DataStore.individual.split('\n').filter { it.isNotBlank() })
                 individual.remove(PackageCache.ROOT_PACKAGE_NAME)
 
-                if (!bypass && shouldProxyRoot) {
-                    // Invert Whitelist -> Blacklist (addDisallowedApplication) so UID=0 remains inside VPN
-                    val unselectedApps = allApps.toMutableSet()
-                    unselectedApps.removeAll(individual)
+                // Only invert Blacklist -> Whitelist when root must be explicitly bypassed (e.g. fakeTCP)
+                if (bypass && needBypassRootUid) {
+                    val individualNew = allApps.toMutableList()
+                    individualNew.removeAll(individual)
                     individual.clear()
-                    individual.addAll(unselectedApps)
-                    bypass = true
-                } else if (bypass && !shouldProxyRoot) {
-                    // Invert Blacklist -> Whitelist (addAllowedApplication) so UID=0 is excluded from VPN
-                    val allowedApps = allApps.toMutableSet()
-                    allowedApps.removeAll(individual)
-                    individual.clear()
-                    individual.addAll(allowedApps)
+                    individual.addAll(individualNew)
                     bypass = false
                 }
             } else {
@@ -215,9 +204,9 @@ class VpnService : BaseVpnService(),
             }
 
             if (bypass) {
-                Logs.d("Add bypass (rootProxied=$shouldProxyRoot): ${added.joinToString(", ")}")
+                Logs.d("Add bypass: ${added.joinToString(", ")}")
             } else {
-                Logs.d("Add allow (rootProxied=$shouldProxyRoot): ${added.joinToString(", ")}")
+                Logs.d("Add allow: ${added.joinToString(", ")}")
             }
         }
 
@@ -229,7 +218,7 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
 
-        if (shouldProxyRoot && forceRootTakeover) {
+        if (forceRootTakeover) {
             RootRouteController.enableRootRouting(
                 ipv6Enabled = ipv6Mode != IPv6Mode.DISABLE,
                 privateVlan4Client = PRIVATE_VLAN4_CLIENT
