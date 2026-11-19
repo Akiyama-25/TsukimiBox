@@ -54,7 +54,7 @@ func (w *boxPlatformInterfaceWrapper) AutoDetectInterfaceControl(fd int) error {
 }
 
 func (w *boxPlatformInterfaceWrapper) OpenTun(options *tun.Options, platformOptions option.TunPlatformOptions) (tun.Tun, error) {
-	if !options.AutoRoute && !options.AutoRedirect {
+	if !options.AutoRoute && !options.AutoRedirectMarkMode {
 		if len(options.IncludeUID) > 0 || len(options.ExcludeUID) > 0 {
 			return nil, E.New("android: unsupported uid options")
 		}
@@ -71,7 +71,7 @@ func (w *boxPlatformInterfaceWrapper) OpenTun(options *tun.Options, platformOpti
 			return nil, fmt.Errorf("syscall.Dup: %v", err)
 		}
 		options.FileDescriptor = int(tunFd)
-	} else if options.AutoRoute || options.AutoRedirect {
+	} else if options.AutoRoute || options.AutoRedirectMarkMode {
 		options.FileDescriptor = 0
 	} else {
 		return nil, fmt.Errorf("intfBox.OpenTun: %v", err)
