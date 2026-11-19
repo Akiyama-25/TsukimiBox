@@ -187,6 +187,14 @@ class ServiceNotification(
     private suspend fun show() =
         useBuilder {
             try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val nm = (service as Context).getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                    if (nm != null && nm.getNotificationChannel(channel) == null) {
+                        val name = (service as Context).getString(R.string.service_proxy)
+                        val nc = android.app.NotificationChannel(channel, name, android.app.NotificationManager.IMPORTANCE_LOW)
+                        nm.createNotificationChannel(nc)
+                    }
+                }
                 if (Build.VERSION.SDK_INT >= 34) {
                     (service as Service).startForeground(
                         notificationId,

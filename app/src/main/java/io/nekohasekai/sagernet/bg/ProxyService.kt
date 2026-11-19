@@ -13,12 +13,7 @@ class ProxyService : Service(), BaseService.Interface {
     override val data = BaseService.Data(this)
     override val tag: String get() = "SagerNetProxyService"
     override fun createNotification(profileName: String): ServiceNotification =
-        ServiceNotification(
-            this,
-            profileName,
-            if (DataStore.serviceMode == Key.MODE_ROOT) "service-root" else "service-proxy",
-            true
-        )
+        ServiceNotification(this, profileName, "service-proxy", true)
 
     override var wakeLock: PowerManager.WakeLock? = null
     override var upstreamInterfaceName: String? = null
@@ -31,7 +26,10 @@ class ProxyService : Service(), BaseService.Interface {
 
     override suspend fun startProcesses() {
         if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.prepareRootEnvironment(DataStore.ipv6Mode != IPv6Mode.DISABLE)
+            RootRouteController.prepareRootEnvironment(
+                DataStore.ipv6Mode != IPv6Mode.DISABLE,
+                DataStore.mtu
+            )
         }
         super.startProcesses()
     }
