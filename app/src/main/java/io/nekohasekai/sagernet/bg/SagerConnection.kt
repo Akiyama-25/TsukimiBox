@@ -25,7 +25,7 @@ class SagerConnection(
             get() = when (DataStore.serviceMode) {
                 Key.MODE_PROXY -> ProxyService::class
                 Key.MODE_VPN -> VpnService::class
-                Key.MODE_ROOT -> ProxyService::class
+                Key.MODE_ROOT -> VpnService::class
                 else -> throw UnknownError()
             }.java
 

@@ -67,20 +67,10 @@ object RootRouteController {
         withContext(Dispatchers.IO) {
             rootModeActive.set(true)
             val script = buildString {
-                append("mkdir -p /dev/net 2>/dev/null || true\n")
-                append("[ ! -c /dev/net/tun ] && mknod /dev/net/tun c 10 200 2>/dev/null || true\n")
-                append("chmod 666 /dev/net/tun 2>/dev/null || true\n")
                 append("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true\n")
                 if (ipv6Enabled) {
                     append("echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null || true\n")
                 }
-                append("ip tuntap add dev tun0 mode tun 2>/dev/null || true\n")
-                append("ip link set dev tun0 mtu $mtu 2>/dev/null || true\n")
-                append("ip addr add ${VpnService.PRIVATE_VLAN4_CLIENT}/${VpnService.PRIVATE_VLAN4_PREFIX} dev tun0 2>/dev/null || true\n")
-                if (ipv6Enabled) {
-                    append("ip -6 addr add ${VpnService.FAKEDNS_VLAN6_CLIENT}1/18 dev tun0 2>/dev/null || true\n")
-                }
-                append("ip link set dev tun0 up 2>/dev/null || true\n")
                 append("ip -4 rule del pref $RULE_PREF 2>/dev/null || true\n")
                 append("ip -6 rule del pref $RULE_PREF 2>/dev/null || true\n")
                 append("ip route flush cache 2>/dev/null || true\n")
@@ -169,10 +159,6 @@ object RootRouteController {
                 append("ip6tables -t nat -D OUTPUT -j sing-box-output 2>/dev/null || true\n")
                 append("ip6tables -t nat -F sing-box-output 2>/dev/null || true\n")
                 append("ip6tables -t nat -X sing-box-output 2>/dev/null || true\n")
-
-                // tun0 interface
-                append("ip link set dev tun0 down 2>/dev/null || true\n")
-                append("ip link delete dev tun0 2>/dev/null || true\n")
 
                 // flush cache
                 append("ip route flush cache 2>/dev/null || true\n")

@@ -241,42 +241,9 @@ fun buildConfig(
                     }
                 }
                 if (isRoot) {
-                    auto_route = true
-                    auto_redirect = true
+                    auto_route = false
+                    auto_redirect = false
                     strict_route = false
-
-                    val myUid = android.os.Process.myUid()
-                    val excludedUids = mutableListOf<Int>()
-                    if (myUid > 0) {
-                        excludedUids.add(myUid)
-                    }
-
-                    if (DataStore.proxyApps) {
-                        PackageCache.awaitLoadSync()
-                        val individualApps = DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
-                        if (DataStore.bypass) {
-                            for (pkg in individualApps) {
-                                val uid = PackageCache[pkg]
-                                if (uid != null && uid >= 0 && !excludedUids.contains(uid)) {
-                                    excludedUids.add(uid)
-                                }
-                            }
-                        } else {
-                            val includedUids = mutableListOf<Int>()
-                            for (pkg in individualApps) {
-                                val uid = PackageCache[pkg]
-                                if (uid != null && uid >= 0 && !includedUids.contains(uid)) {
-                                    includedUids.add(uid)
-                                }
-                            }
-                            if (includedUids.isNotEmpty()) {
-                                include_uid = includedUids
-                            }
-                        }
-                    }
-                    if (excludedUids.isNotEmpty()) {
-                        exclude_uid = excludedUids
-                    }
                 }
             })
             inbounds.add(Inbound_MixedOptions().apply {

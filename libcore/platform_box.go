@@ -71,6 +71,7 @@ func (w *boxPlatformInterfaceWrapper) OpenTun(options *tun.Options, platformOpti
 			return nil, fmt.Errorf("syscall.Dup: %v", err)
 		}
 		options.FileDescriptor = int(tunFd)
+		options.AutoRoute = false
 	} else if options.AutoRoute || options.AutoRedirectMarkMode {
 		options.FileDescriptor = 0
 	} else {

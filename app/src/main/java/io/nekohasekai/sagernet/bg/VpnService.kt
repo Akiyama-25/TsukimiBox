@@ -42,6 +42,12 @@ class VpnService : BaseVpnService(),
 
     override suspend fun startProcesses() {
         DataStore.vpnService = this
+        if (DataStore.serviceMode == Key.MODE_ROOT) {
+            RootRouteController.prepareRootEnvironment(
+                DataStore.ipv6Mode != IPv6Mode.DISABLE,
+                DataStore.mtu
+            )
+        }
         super.startProcesses() // launch proxy instance
     }
 
@@ -56,6 +62,9 @@ class VpnService : BaseVpnService(),
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
         RootRouteController.disableRootRouting()
+        if (DataStore.serviceMode == Key.MODE_ROOT) {
+            RootRouteController.cleanupAll()
+        }
         conn?.close()
         conn = null
         super.killProcesses()
@@ -72,7 +81,7 @@ class VpnService : BaseVpnService(),
         ServiceNotification(this, profileName, "service-vpn")
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (DataStore.serviceMode == Key.MODE_VPN) {
+        if (DataStore.serviceMode == Key.MODE_VPN || DataStore.serviceMode == Key.MODE_ROOT) {
             if (prepare(this) != null) {
                 startActivity(
                     Intent(
@@ -134,7 +143,7 @@ class VpnService : BaseVpnService(),
         // app route & Root (UID=0) takeover logic
         val packageName = packageName
         val proxyApps = DataStore.proxyApps
-        val forceRootTakeover = DataStore.rootTrafficTakeover
+        val forceRootTakeover = DataStore.serviceMode == Key.MODE_ROOT || DataStore.rootTrafficTakeover
         var bypass = DataStore.bypass
         val workaroundSYSTEM = false /* DataStore.tunImplementation == TunImplementation.SYSTEM */
         val needBypassRootUid = !forceRootTakeover && (workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
@@ -186,10 +195,14 @@ class VpnService : BaseVpnService(),
             val added = mutableListOf<String>()
 
             individual.apply {
-                // Allow TsukimiBox itself using VPN (protected via VpnService.protect).
-                remove(packageName)
                 remove(PackageCache.ROOT_PACKAGE_NAME)
-                if (!bypass) add(packageName)
+                if (bypass) {
+                    // In Blacklist (Disallow) mode, add TsukimiBox so it is excluded from the VPN tunnel.
+                    add(packageName)
+                } else {
+                    // In Whitelist (Allow) mode, ensure TsukimiBox is NOT in allowed list, keeping it outside the VPN tunnel.
+                    remove(packageName)
+                }
             }.forEach {
                 try {
                     if (bypass) {
@@ -243,6 +256,9 @@ class VpnService : BaseVpnService(),
 
     override fun onDestroy() {
         RootRouteController.disableRootRouting()
+        if (DataStore.serviceMode == Key.MODE_ROOT) {
+            RootRouteController.cleanupAll()
+        }
         DataStore.vpnService = null
         super.onDestroy()
         data.binder.close()
