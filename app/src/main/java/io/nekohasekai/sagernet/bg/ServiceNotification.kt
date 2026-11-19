@@ -39,7 +39,7 @@ import kotlinx.coroutines.sync.withLock
  */
 class ServiceNotification(
     private val service: BaseService.Interface, title: String,
-    channel: String, visible: Boolean = false,
+    private val channel: String, visible: Boolean = false,
 ) : BroadcastReceiver() {
     companion object {
         const val notificationId = 1
