@@ -2313,6 +2313,12 @@ public class SingBoxOptions {
 
         public Boolean strict_route;
 
+        public Boolean auto_redirect;
+
+        public Integer auto_redirect_input_mark;
+
+        public Integer auto_redirect_output_mark;
+
         // Generate note: Listable
         public List<String> inet4_route_address;
 
@@ -2812,6 +2818,12 @@ public class SingBoxOptions {
         public Boolean auto_route;
 
         public Boolean strict_route;
+
+        public Boolean auto_redirect;
+
+        public Integer auto_redirect_input_mark;
+
+        public Integer auto_redirect_output_mark;
 
         // Generate note: Listable
         public List<String> inet4_route_address;

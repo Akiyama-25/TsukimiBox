@@ -133,6 +133,7 @@ fun buildConfig(
     val domainListDNSDirectForce = mutableListOf<String>()
     val bypassDNSBeans = hashSetOf<AbstractBean>()
     val isVPN = DataStore.serviceMode == Key.MODE_VPN
+    val isRoot = DataStore.serviceMode == Key.MODE_ROOT
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
     fun normalizeDnsAddress(address: String): String {
         val trimmed = address.trim()
@@ -211,9 +212,10 @@ fun buildConfig(
         inbounds = mutableListOf()
 
         if (!forTest) {
-            if (isVPN) inbounds.add(Inbound_TunOptions().apply {
+            if (isVPN || isRoot) inbounds.add(Inbound_TunOptions().apply {
                 type = "tun"
                 tag = "tun-in"
+                interface_name = if (isRoot) "tun0" else null
                 stack = when (DataStore.tunImplementation) {
                     TunImplementation.GVISOR -> "gvisor"
                     TunImplementation.SYSTEM -> "system"
@@ -226,7 +228,7 @@ fun buildConfig(
                 sniff_override_destination = needSniffOverride
                 when (ipv6Mode) {
                     IPv6Mode.DISABLE -> {
-                        inet4_address = listOf(VpnService.PRIVATE_VLAN4_CLIENT + "/28")
+                        inet4_address = listOf("${VpnService.PRIVATE_VLAN4_CLIENT}/${VpnService.PRIVATE_VLAN4_PREFIX}")
                     }
 
                     IPv6Mode.ONLY -> {
@@ -234,8 +236,46 @@ fun buildConfig(
                     }
 
                     else -> {
-                        inet4_address = listOf(VpnService.PRIVATE_VLAN4_CLIENT + "/28")
+                        inet4_address = listOf("${VpnService.PRIVATE_VLAN4_CLIENT}/${VpnService.PRIVATE_VLAN4_PREFIX}")
                         inet6_address = listOf(VpnService.PRIVATE_VLAN6_CLIENT + "/126")
+                    }
+                }
+                if (isRoot) {
+                    auto_route = true
+                    auto_redirect = true
+                    strict_route = false
+
+                    val myUid = android.os.Process.myUid()
+                    val excludedUids = mutableListOf<Int>()
+                    if (myUid > 0) {
+                        excludedUids.add(myUid)
+                    }
+
+                    if (DataStore.proxyApps) {
+                        PackageCache.awaitLoadSync()
+                        val individualApps = DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
+                        if (DataStore.bypass) {
+                            for (pkg in individualApps) {
+                                val uid = PackageCache[pkg]
+                                if (uid != null && uid >= 0 && !excludedUids.contains(uid)) {
+                                    excludedUids.add(uid)
+                                }
+                            }
+                        } else {
+                            val includedUids = mutableListOf<Int>()
+                            for (pkg in individualApps) {
+                                val uid = PackageCache[pkg]
+                                if (uid != null && uid >= 0 && !includedUids.contains(uid)) {
+                                    includedUids.add(uid)
+                                }
+                            }
+                            if (includedUids.isNotEmpty()) {
+                                include_uid = includedUids
+                            }
+                        }
+                    }
+                    if (excludedUids.isNotEmpty()) {
+                        exclude_uid = excludedUids
                     }
                 }
             })
@@ -501,7 +541,7 @@ fun buildConfig(
                 PackageCache.awaitLoadSync()
             }
             val uidList = rule.packages.map {
-                if (!isVPN) {
+                if (!isVPN && !isRoot) {
                     Toast.makeText(
                         SagerNet.application,
                         SagerNet.application.getString(R.string.route_need_vpn, rule.displayName()),
@@ -731,12 +771,14 @@ fun buildConfig(
                 dns.fakeip = DNSFakeIPOptions().apply {
                     enabled = true
                     inet4_range = "198.18.0.0/15"
-                    inet6_range = "fc00::/18"
+                    if (ipv6Mode != IPv6Mode.DISABLE) {
+                        inet6_range = "fc00::/18"
+                    }
                 }
                 dns.servers.add(DNSServerOptions().apply {
                     address = "fakeip"
                     tag = "dns-fake"
-                    strategy = "ipv4_only"
+                    strategy = autoDnsDomainStrategy("")
                 })
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     inbound = listOf("tun-in")

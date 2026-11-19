@@ -53,6 +53,7 @@
     <string name="service_mode">运行模式</string>
     <string name="service_mode_proxy">仅代理</string>
     <string name="service_mode_vpn" translatable="false">VPN</string>
+    <string name="service_mode_root">Root 透明代理 (Auto Redirect)</string>
     <string name="port_proxy">代理端口</string>
     <string name="port_http">HTTP 代理端口</string>
     <string name="port_transproxy">透明代理端口</string>

@@ -8,6 +8,34 @@ object RootRouteController {
 
     private const val RULE_PREF = 9990
     private val active = AtomicBoolean(false)
+    private val rootModeActive = AtomicBoolean(false)
+
+    fun prepareRootEnvironment(ipv6Enabled: Boolean) {
+        rootModeActive.set(true)
+        runOnDefaultDispatcher {
+            try {
+                val script = buildString {
+                    append("mkdir -p /dev/net 2>/dev/null || true; ")
+                    append("[ ! -c /dev/net/tun ] && mknod /dev/net/tun c 10 200 2>/dev/null || true; ")
+                    append("chmod 666 /dev/net/tun 2>/dev/null || true; ")
+                    append("echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true; ")
+                    if (ipv6Enabled) {
+                        append("echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null || true; ")
+                    }
+                    append("ip -4 rule del pref $RULE_PREF 2>/dev/null || true; ")
+                    append("ip -6 rule del pref $RULE_PREF 2>/dev/null || true; ")
+                    append("ip route flush cache 2>/dev/null || true")
+                }
+                val process = ProcessBuilder("su", "-c", script)
+                    .redirectErrorStream(true)
+                    .start()
+                val exitCode = process.waitFor()
+                Logs.d("RootRouteController: prepared Root environment (code=$exitCode)")
+            } catch (e: Exception) {
+                Logs.w("RootRouteController: failed to prepare Root environment: ${e.message}")
+            }
+        }
+    }
 
     fun enableRootRouting(ipv6Enabled: Boolean, privateVlan4Client: String) {
         runOnDefaultDispatcher {
@@ -63,6 +91,56 @@ object RootRouteController {
                 Logs.d("RootRouteController: cleaned up UID=0 policy routing rule (pref $RULE_PREF)")
             } catch (e: Exception) {
                 Logs.w("RootRouteController: failed to clean up UID=0 policy routing rule: ${e.message}")
+            }
+        }
+    }
+
+    fun cleanupAll() {
+        active.set(false)
+        rootModeActive.set(false)
+        runOnDefaultDispatcher {
+            try {
+                val cleanupScript = buildString {
+                    // ip rules
+                    append("ip -4 rule del pref $RULE_PREF 2>/dev/null || true; ")
+                    append("ip -6 rule del pref $RULE_PREF 2>/dev/null || true; ")
+                    append("ip -4 rule del pref 9000 2>/dev/null || true; ")
+                    append("ip -6 rule del pref 9000 2>/dev/null || true; ")
+
+                    // nftables sing-box tables
+                    append("nft delete table inet sing-box 2>/dev/null || true; ")
+                    append("nft delete table ip sing-box 2>/dev/null || true; ")
+                    append("nft delete table ip6 sing-box 2>/dev/null || true; ")
+
+                    // iptables & ip6tables chains
+                    append("iptables -t mangle -D PREROUTING -j SING_BOX 2>/dev/null || true; ")
+                    append("iptables -t mangle -D OUTPUT -j SING_BOX_LOCAL 2>/dev/null || true; ")
+                    append("iptables -t mangle -F SING_BOX 2>/dev/null || true; ")
+                    append("iptables -t mangle -X SING_BOX 2>/dev/null || true; ")
+                    append("iptables -t mangle -F SING_BOX_LOCAL 2>/dev/null || true; ")
+                    append("iptables -t mangle -X SING_BOX_LOCAL 2>/dev/null || true; ")
+
+                    append("ip6tables -t mangle -D PREROUTING -j SING_BOX 2>/dev/null || true; ")
+                    append("ip6tables -t mangle -D OUTPUT -j SING_BOX_LOCAL 2>/dev/null || true; ")
+                    append("ip6tables -t mangle -F SING_BOX 2>/dev/null || true; ")
+                    append("ip6tables -t mangle -X SING_BOX 2>/dev/null || true; ")
+                    append("ip6tables -t mangle -F SING_BOX_LOCAL 2>/dev/null || true; ")
+                    append("ip6tables -t mangle -X SING_BOX_LOCAL 2>/dev/null || true; ")
+
+                    // tun0 interface
+                    append("ip link set dev tun0 down 2>/dev/null || true; ")
+                    append("ip link delete dev tun0 2>/dev/null || true; ")
+
+                    // flush cache
+                    append("ip route flush cache 2>/dev/null || true")
+                }
+                val process = ProcessBuilder("su", "-c", cleanupScript)
+                    .redirectErrorStream(true)
+                    .start()
+                val exit = process.waitFor()
+                Logs.d("RootRouteController: performed complete root and route cleanup (code=$exit)")
+            } catch (e: Exception) {
+                Logs.w("RootRouteController: failed to clean up root rules: ${e.message}")
             }
         }
     }

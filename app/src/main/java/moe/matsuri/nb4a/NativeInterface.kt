@@ -29,6 +29,9 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
 
     override fun openTun(singTunOptionsJson: String, tunPlatformOptionsJson: String): Long {
         if (DataStore.vpnService == null) {
+            if (DataStore.serviceMode == io.nekohasekai.sagernet.Key.MODE_ROOT) {
+                return 0L
+            }
             throw Exception("no VpnService")
         }
         return DataStore.vpnService!!.startVpn(singTunOptionsJson, tunPlatformOptionsJson).toLong()
