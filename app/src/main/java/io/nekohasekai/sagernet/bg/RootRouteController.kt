@@ -1,11 +1,14 @@
 package io.nekohasekai.sagernet.bg
 
+import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 
 object RootRouteController {
 
@@ -13,6 +16,8 @@ object RootRouteController {
     // and right alongside Android's own VPN rules at 12000) so netd physical DNS is never hijacked.
     private const val RULE_PREF = 12500
     private const val LEGACY_RULE_PREF = 9990
+    const val ROOT_PID_FILE_NAME = "root_singbox.pid"
+
     private val active = AtomicBoolean(false)
     private val rootModeActive = AtomicBoolean(false)
 
@@ -33,75 +38,85 @@ object RootRouteController {
         return "su"
     }
 
-    fun runSuScript(script: String): Boolean {
+    fun runSuScript(script: String, timeoutSec: Long = 8L): Boolean {
         val suBin = getSuBinary()
         return try {
             val process = ProcessBuilder(suBin)
                 .redirectErrorStream(true)
                 .start()
+
+            // Always drain stdout/stderr concurrently to prevent pipe buffer deadlock
+            val outputBuf = StringBuilder()
+            val readerThread = thread(start = true, isDaemon = true, name = "su-stdout") {
+                try {
+                    process.inputStream.bufferedReader().use { reader ->
+                        val buf = CharArray(1024)
+                        var n: Int
+                        while (reader.read(buf).also { n = it } != -1) {
+                            if (outputBuf.length < 4096) {
+                                outputBuf.append(buf, 0, n)
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+
             process.outputStream.bufferedWriter().use { writer ->
                 writer.write(script)
                 writer.newLine()
-                writer.write("exit\n")
+                writer.write("exit 0\n")
                 writer.flush()
             }
-            val exitCode = process.waitFor()
+
+            val finished = process.waitFor(timeoutSec, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                Logs.w("RootRouteController: su ($suBin) timed out after ${timeoutSec}s; output=${outputBuf.toString().trim()}")
+                return false
+            }
+            try {
+                readerThread.join(500)
+            } catch (_: InterruptedException) {
+            }
+            val exitCode = process.exitValue()
             if (exitCode == 0) {
                 true
             } else {
-                Logs.w("RootRouteController: su ($suBin) exited with code $exitCode")
+                Logs.w("RootRouteController: su ($suBin) exited with code $exitCode; output=${outputBuf.toString().trim()}")
                 false
             }
         } catch (e: Exception) {
-            try {
-                val process = ProcessBuilder("su", "-c", script)
-                    .redirectErrorStream(true)
-                    .start()
-                val exitCode = process.waitFor()
-                exitCode == 0
-            } catch (e2: Exception) {
-                Logs.w("RootRouteController: su execution failed: ${e2.message}")
-                false
-            }
+            Logs.w("RootRouteController: su ($suBin) execution failed: ${e.message}")
+            false
         }
     }
 
-    const val ROOT_PID_FILE_NAME = "root_singbox.pid"
+    private fun defaultPidFilePath(): String? = try {
+        File(File(SagerNet.application.cacheDir, "tmpcfg"), ROOT_PID_FILE_NAME).absolutePath
+    } catch (_: Throwable) {
+        null
+    }
 
     private fun buildKillRootCoreCommands(pidFilePath: String? = null): String = buildString {
-        // Pure POSIX /proc scan + PID file kill (does not rely on toybox pkill/pgrep/killall quirks on Android 16)
-        append("kill_singbox() {\n")
-        append("  sig=\"\$1\"\n")
+        // Fast, bounded O(1) termination using PID file + single pidof fallback (zero /proc loops)
         if (!pidFilePath.isNullOrBlank()) {
-            append("  if [ -f '$pidFilePath' ]; then\n")
-            append("    pf_pid=\$(cat '$pidFilePath' 2>/dev/null)\n")
-            append("    [ -n \"\$pf_pid\" ] && kill -\"\$sig\" \"\$pf_pid\" 2>/dev/null || true\n")
+            append("if [ -f '$pidFilePath' ]; then\n")
+            append("  pf_pid=\$(cat '$pidFilePath' 2>/dev/null)\n")
+            append("  if [ -n \"\$pf_pid\" ] && kill -0 \"\$pf_pid\" 2>/dev/null; then\n")
+            append("    kill -TERM \"\$pf_pid\" 2>/dev/null || true\n")
+            append("    for i in 1 2 3 4; do kill -0 \"\$pf_pid\" 2>/dev/null || break; sleep 0.1; done\n")
+            append("    kill -KILL \"\$pf_pid\" 2>/dev/null || true\n")
             append("  fi\n")
+            append("  rm -f '$pidFilePath' 2>/dev/null || true\n")
+            append("fi\n")
         }
-        append("  for p in /proc/[0-9]*; do\n")
-        append("    pid=\"\${p#/proc/}\"\n")
-        append("    [ \"\$pid\" = \"\$\$\" ] && continue\n")
-        append("    if [ -r \"\$p/cmdline\" ] && tr '\\0' ' ' < \"\$p/cmdline\" 2>/dev/null | grep -q 'libsingbox\\.so'; then\n")
-        append("      kill -\"\$sig\" \"\$pid\" 2>/dev/null || true\n")
-        append("    fi\n")
-        append("  done\n")
-        append("}\n")
-        append("has_singbox() {\n")
-        append("  for p in /proc/[0-9]*; do\n")
-        append("    pid=\"\${p#/proc/}\"\n")
-        append("    [ \"\$pid\" = \"\$\$\" ] && continue\n")
-        append("    if [ -r \"\$p/cmdline\" ] && tr '\\0' ' ' < \"\$p/cmdline\" 2>/dev/null | grep -q 'libsingbox\\.so'; then\n")
-        append("      return 0\n")
-        append("    fi\n")
-        append("  done\n")
-        append("  return 1\n")
-        append("}\n")
-        append("kill_singbox TERM\n")
-        append("for i in 1 2 3 4 5 6; do has_singbox || break; sleep 0.15; done\n")
-        append("kill_singbox KILL\n")
-        if (!pidFilePath.isNullOrBlank()) {
-            append("rm -f '$pidFilePath' 2>/dev/null || true\n")
-        }
+        append("stray_pids=\$(pidof libsingbox.so 2>/dev/null || true)\n")
+        append("if [ -n \"\$stray_pids\" ]; then\n")
+        append("  kill -TERM \$stray_pids 2>/dev/null || true\n")
+        append("  sleep 0.2\n")
+        append("  kill -KILL \$stray_pids 2>/dev/null || true\n")
+        append("fi\n")
     }
 
     private fun buildCleanupCommands(includeTunAndCore: Boolean, pidFilePath: String? = null): String = buildString {
@@ -115,33 +130,11 @@ object RootRouteController {
         append("ip -4 rule del pref $LEGACY_RULE_PREF 2>/dev/null || true\n")
         append("ip -6 rule del pref $LEGACY_RULE_PREF 2>/dev/null || true\n")
 
-        // Remove sing-tun auto_route ip rules (default pref range 9000..9015 and fallback 32768)
-        append("for p in 9000 9001 9002 9003 9004 9005 9006 9007 9008 9009 9010 9011 9012 9013 9014 9015 32768; do ")
-        append("while ip -4 rule del pref \$p 2>/dev/null; do :; done; ")
-        append("while ip -6 rule del pref \$p 2>/dev/null; do :; done; ")
-        append("done\n")
+        // Remove only actually-present sing-tun auto_route ip rules (pref 9000..9015 and 32768)
+        append("for p in \$(ip -4 rule show 2>/dev/null | awk -F: '\$1>=9000 && \$1<=9015 || \$1==32768 {print \$1}'); do ip -4 rule del pref \"\$p\" 2>/dev/null || true; done\n")
+        append("for p in \$(ip -6 rule show 2>/dev/null | awk -F: '\$1>=9000 && \$1<=9015 || \$1==32768 {print \$1}'); do ip -6 rule del pref \"\$p\" 2>/dev/null || true; done\n")
         append("ip -4 route flush table 2022 2>/dev/null || true\n")
         append("ip -6 route flush table 2022 2>/dev/null || true\n")
-
-        // nftables sing-box tables (if any)
-        append("nft delete table inet sing-box 2>/dev/null || true\n")
-        append("nft delete table ip sing-box 2>/dev/null || true\n")
-        append("nft delete table ip6 sing-box 2>/dev/null || true\n")
-
-        // iptables & ip6tables mangle chains
-        append("iptables -t mangle -D PREROUTING -j SING_BOX 2>/dev/null || true\n")
-        append("iptables -t mangle -D OUTPUT -j SING_BOX_LOCAL 2>/dev/null || true\n")
-        append("iptables -t mangle -F SING_BOX 2>/dev/null || true\n")
-        append("iptables -t mangle -X SING_BOX 2>/dev/null || true\n")
-        append("iptables -t mangle -F SING_BOX_LOCAL 2>/dev/null || true\n")
-        append("iptables -t mangle -X SING_BOX_LOCAL 2>/dev/null || true\n")
-
-        append("ip6tables -t mangle -D PREROUTING -j SING_BOX 2>/dev/null || true\n")
-        append("ip6tables -t mangle -D OUTPUT -j SING_BOX_LOCAL 2>/dev/null || true\n")
-        append("ip6tables -t mangle -F SING_BOX 2>/dev/null || true\n")
-        append("ip6tables -t mangle -X SING_BOX 2>/dev/null || true\n")
-        append("ip6tables -t mangle -F SING_BOX_LOCAL 2>/dev/null || true\n")
-        append("ip6tables -t mangle -X SING_BOX_LOCAL 2>/dev/null || true\n")
 
         // nat table cleanup (sing-tun auto_redirect on android)
         append("iptables -t nat -D OUTPUT -j sing-box-output 2>/dev/null || true\n")
@@ -157,12 +150,6 @@ object RootRouteController {
         }
 
         append("ip route flush cache 2>/dev/null || true\n")
-    }
-
-    private fun defaultPidFilePath(): String? = try {
-        File(File(io.nekohasekai.sagernet.SagerNet.application.cacheDir, "tmpcfg"), ROOT_PID_FILE_NAME).absolutePath
-    } catch (_: Throwable) {
-        null
     }
 
     suspend fun prepareRootEnvironment(ipv6Enabled: Boolean, mtu: Int = 1400): Boolean =

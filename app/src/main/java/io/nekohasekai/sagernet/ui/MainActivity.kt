@@ -369,9 +369,10 @@ class MainActivity : ThemedActivity(),
         msg: String? = null,
         animate: Boolean = false,
     ) {
+        val lastState = DataStore.serviceState
         DataStore.serviceState = state
 
-        binding.fab.changeState(state, DataStore.serviceState, animate)
+        binding.fab.changeState(state, lastState, animate)
         binding.stats.changeState(state)
         if (msg != null) snackbar(getString(R.string.vpn_error, msg)).show()
     }
@@ -432,7 +433,12 @@ class MainActivity : ThemedActivity(),
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         when (key) {
-            Key.SERVICE_MODE -> onBinderDied()
+            Key.SERVICE_MODE -> {
+                // Rebind immediately to the newly selected service class and reset UI to Stopped
+                // so a stopping previous service cannot leave the FAB disabled in State.Stopping.
+                changeState(BaseService.State.Stopped)
+                onBinderDied()
+            }
             Key.PROXY_APPS, Key.BYPASS_MODE, Key.INDIVIDUAL -> {
                 if (DataStore.serviceState.canStop) {
                     snackbar(getString(R.string.need_reload)).setAction(R.string.apply) {

@@ -264,8 +264,12 @@ class BaseService {
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
-            DataStore.baseService = null
-            DataStore.vpnService = null
+            if (DataStore.baseService === this) {
+                DataStore.baseService = null
+            }
+            if (DataStore.vpnService === this) {
+                DataStore.vpnService = null
+            }
 
             if (data.state == State.Stopping) return
             data.notification?.destroy()
@@ -392,7 +396,7 @@ class BaseService {
             }
 
             data.changeState(State.Connecting)
-            runOnMainDispatcher {
+            data.connectingJob = runOnMainDispatcher {
                 try {
                     data.notification = createNotification(ServiceNotification.genTitle(profile))
 

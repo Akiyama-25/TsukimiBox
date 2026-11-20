@@ -61,15 +61,19 @@ class SagerConnection(
     private var connectionActive = false
     private var callbackRegistered = false
     private var callback: Callback? = null
+    private var connectionGen = 0
     private val serviceCallback = object : ISagerNetServiceCallback.Stub() {
 
         override fun stateChanged(state: Int, profileName: String?, msg: String?) {
             if (state < 0) return // skip private
             val s = BaseService.State.values()[state]
-            DataStore.serviceState = s
-            val callback = callback ?: return
+            val gen = connectionGen
+            val cb = callback ?: return
             runOnMainDispatcher {
-                callback.stateChanged(s, profileName, msg)
+                // Ignore stale callbacks posted by a previous service after disconnect/rebind
+                if (!connectionActive || gen != connectionGen) return@runOnMainDispatcher
+                DataStore.serviceState = s
+                cb.stateChanged(s, profileName, msg)
             }
         }
 
@@ -158,6 +162,7 @@ class SagerConnection(
     fun connect(context: Context, callback: Callback?) {
         if (connectionActive) return
         connectionActive = true
+        connectionGen++
         check(this.callback == null)
         this.callback = callback
         val intent = Intent(context, serviceClass).setAction(Action.SERVICE)
@@ -165,6 +170,7 @@ class SagerConnection(
     }
 
     fun disconnect(context: Context) {
+        connectionGen++
         unregisterCallback()
         if (connectionActive) try {
             context.unbindService(this)
