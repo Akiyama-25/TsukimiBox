@@ -144,20 +144,30 @@ class BaseService {
         override fun urlTest(): Int {
             val proxy = data?.proxy ?: error("core not started")
             if (proxy.isRootDaemon) {
-                val client = Libcore.newHttpClient().apply {
-                    trySocks5(proxy.activeMixedPort)
-                }
+                var conn: java.net.HttpURLConnection? = null
                 try {
+                    val url = java.net.URL(DataStore.connectionTestURL)
+                    val httpProxy = java.net.Proxy(
+                        java.net.Proxy.Type.HTTP,
+                        java.net.InetSocketAddress(io.nekohasekai.sagernet.fmt.LOCALHOST, proxy.activeMixedPort)
+                    )
                     val start = SystemClock.elapsedRealtime()
-                    val req = client.newRequest().apply {
-                        setURL(DataStore.connectionTestURL)
+                    conn = (url.openConnection(httpProxy) as java.net.HttpURLConnection).apply {
+                        connectTimeout = 3000
+                        readTimeout = 3000
+                        instanceFollowRedirects = false
+                        requestMethod = "GET"
+                        setRequestProperty("Connection", "close")
                     }
-                    req.execute()
+                    val code = conn.responseCode
+                    if (code !in 200..399) {
+                        error("HTTP $code ${conn.responseMessage ?: ""}".trim())
+                    }
                     return (SystemClock.elapsedRealtime() - start).toInt().coerceAtLeast(1)
                 } catch (e: Exception) {
                     error(Protocols.genFriendlyMsg(e.readableMessage))
                 } finally {
-                    client.close()
+                    conn?.disconnect()
                 }
             }
             if (!proxy.hasInProcessBox()) {
