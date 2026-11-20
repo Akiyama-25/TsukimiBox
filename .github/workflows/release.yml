@@ -160,3 +160,33 @@ jobs:
         with:
           name: AAB
           path: app/build/outputs/bundle/playRelease/app-play-release.aab
+
+  cleanup-cache:
+    name: Clean up InstaBox build cache
+    needs: [libcore, build, publish, play]
+    if: always()
+    runs-on: [self-hosted, android-builder]
+    steps:
+      - name: Clean build caches and temporary workspace outputs
+        continue-on-error: true
+        run: |
+          echo ">>> Disk usage before cleanup:"
+          df -h . "$HOME" || true
+          rm -rf \
+            "$GITHUB_WORKSPACE/.gradle" \
+            "$GITHUB_WORKSPACE/build" \
+            "$GITHUB_WORKSPACE"/*/build \
+            "$GITHUB_WORKSPACE/dist" \
+            "$HOME/.gradle/caches/build-cache-"* \
+            "$HOME/.gradle/caches/transforms-"* \
+            "$HOME/.gradle/caches/journal-"* \
+            "$HOME/.gradle/caches/8."* \
+            "$HOME/.gradle/caches/9."* \
+            "$HOME/.gradle/daemon" \
+            "$HOME/.gradle/tmp" \
+            "$HOME/.android/build-cache" \
+            "$HOME/.cache/go-build" \
+            "$RUNNER_TEMP/"* \
+            /tmp/gradle* /tmp/kotlin* /tmp/sdk.log 2>/dev/null || true
+          echo ">>> Disk usage after cleanup:"
+          df -h . "$HOME" || true
