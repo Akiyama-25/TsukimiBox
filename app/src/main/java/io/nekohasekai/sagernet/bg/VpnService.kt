@@ -94,7 +94,7 @@ class VpnService : BaseVpnService(),
         // address & route & MTU ...... use NB4A GUI config
         val builder = Builder().setConfigureIntent(SagerNet.configureIntent(this))
             .setSession(getString(R.string.app_name))
-            .setMtu(DataStore.mtu)
+            .setMtu(DataStore.effectiveTunMtu)
         val ipv6Mode = DataStore.ipv6Mode
 
         // address & DNS (kept strictly consistent with ConfigBuilder tun-in addresses)

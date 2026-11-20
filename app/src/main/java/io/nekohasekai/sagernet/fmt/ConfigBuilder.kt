@@ -223,7 +223,7 @@ fun buildConfig(
                 // while gVisor handles UDP (DNS/QUIC) and IPv6 cleanly without system-stack conflicts.
                 stack = "gvisor"
                 endpoint_independent_nat = true
-                mtu = DataStore.mtu
+                mtu = DataStore.effectiveTunMtu
                 domain_strategy = genDomainStrategy(DataStore.resolveDestination)
                 sniff = needSniff
                 sniff_override_destination = needSniffOverride

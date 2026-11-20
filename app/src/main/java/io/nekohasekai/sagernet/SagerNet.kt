@@ -75,6 +75,7 @@ class SagerNet : Application(),
         Thread.setDefaultUncaughtExceptionHandler(CrashHandler)
 
         if (isMainProcess || isBgProcess) {
+            DataStore.initGlobal()
             externalAssets.mkdirs()
             Seq.setContext(this)
             Libcore.initCore(

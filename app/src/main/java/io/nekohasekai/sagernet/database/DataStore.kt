@@ -103,7 +103,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }
     var resolveDestination by configurationStore.boolean(Key.RESOLVE_DESTINATION)
 
-    var mtu by configurationStore.stringToInt(Key.MTU) { 1400 }
+    var mtu by configurationStore.stringToInt(Key.MTU) { 1280 }
+
+    val effectiveTunMtu: Int
+        get() = mtu.coerceIn(1280, 1400)
 
     var bypassLan by configurationStore.boolean(Key.BYPASS_LAN)
     var bypassLanInCore by configurationStore.boolean(Key.BYPASS_LAN_IN_CORE)
@@ -133,6 +136,12 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     fun initGlobal() {
         if (configurationStore.getString(Key.MIXED_PORT) == null) {
             mixedPort = mixedPort
+        }
+        if (!configurationStore.getBoolean("mtu_migrated_quic_v2", false)) {
+            if (mtu > 1400 || mtu < 1280) {
+                mtu = 1280
+            }
+            configurationStore.putBoolean("mtu_migrated_quic_v2", true)
         }
     }
 

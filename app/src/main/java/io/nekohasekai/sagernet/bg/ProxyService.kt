@@ -28,7 +28,7 @@ class ProxyService : Service(), BaseService.Interface {
         if (DataStore.serviceMode == Key.MODE_ROOT) {
             val ok = RootRouteController.prepareRootEnvironment(
                 DataStore.ipv6Mode != IPv6Mode.DISABLE,
-                DataStore.mtu
+                DataStore.effectiveTunMtu
             )
             if (!ok) {
                 throw IllegalStateException("Root permission (su) is required for Root AutoRedirect mode")
