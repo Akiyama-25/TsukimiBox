@@ -219,18 +219,9 @@ fun buildConfig(
                 // In VpnService mode, TsukimiBox excludes itself from VPN to avoid self-looping.
                 // sing-tun's "system" and "mixed" TCP stacks require the app's own UID to route back
                 // through tun0 for SYN-ACKs; otherwise all TUN TCP (incl. DoT/853 & DoH/443) breaks.
-                // Therefore force "gvisor" in VpnService mode (pure userspace TCP+UDP, full HTTP/3 QUIC).
                 // In Root mode with auto_redirect, IPv4 TCP is natively redirected by kernel iptables,
-                // while gVisor handles UDP (DNS/QUIC) and IPv6 cleanly.
-                stack = if (isVPN) {
-                    "gvisor"
-                } else {
-                    when (DataStore.tunImplementation) {
-                        TunImplementation.SYSTEM -> "system"
-                        TunImplementation.MIXED -> "mixed"
-                        else -> "gvisor"
-                    }
-                }
+                // while gVisor handles UDP (DNS/QUIC) and IPv6 cleanly without system-stack conflicts.
+                stack = "gvisor"
                 endpoint_independent_nat = true
                 mtu = DataStore.mtu
                 domain_strategy = genDomainStrategy(DataStore.resolveDestination)
@@ -255,44 +246,59 @@ fun buildConfig(
                     auto_redirect = true
                     strict_route = false
 
+                    // Standalone root sing-box reads /data/system/packages.list natively, so use
+                    // include_package / exclude_package directly (immune to Android 16 PackageCache limits).
+                    val selfPkg = SagerNet.application.packageName
                     val myUid = android.os.Process.myUid()
                     if (DataStore.proxyApps) {
-                        PackageCache.awaitLoadSync()
-                        val individualApps = DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
+                        val individualApps = DataStore.individual.split('\n')
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .toSet()
                         if (DataStore.bypass) {
+                            val excludedPkgs = linkedSetOf(selfPkg)
                             val excludedUids = mutableListOf<Int>()
                             if (myUid > 0) excludedUids.add(myUid)
                             for (pkg in individualApps) {
-                                val uid = if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
-                                    PackageCache.ROOT_UID
+                                if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
+                                    if (!excludedUids.contains(PackageCache.ROOT_UID)) {
+                                        excludedUids.add(PackageCache.ROOT_UID)
+                                    }
                                 } else {
-                                    PackageCache[pkg]
+                                    excludedPkgs.add(pkg)
                                 }
-                                if (uid != null && uid >= 0 && !excludedUids.contains(uid)) {
-                                    excludedUids.add(uid)
-                                }
+                            }
+                            if (excludedPkgs.isNotEmpty()) {
+                                exclude_package = excludedPkgs.toList()
                             }
                             if (excludedUids.isNotEmpty()) {
                                 exclude_uid = excludedUids
                             }
                         } else {
+                            val includedPkgs = linkedSetOf<String>()
                             val includedUids = mutableListOf<Int>()
                             for (pkg in individualApps) {
-                                val uid = if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
-                                    PackageCache.ROOT_UID
+                                if (pkg == selfPkg) continue
+                                if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
+                                    if (!includedUids.contains(PackageCache.ROOT_UID)) {
+                                        includedUids.add(PackageCache.ROOT_UID)
+                                    }
                                 } else {
-                                    PackageCache[pkg]
+                                    includedPkgs.add(pkg)
                                 }
-                                if (uid != null && uid >= 0 && uid != myUid && !includedUids.contains(uid)) {
-                                    includedUids.add(uid)
-                                }
+                            }
+                            if (includedPkgs.isNotEmpty()) {
+                                include_package = includedPkgs.toList()
                             }
                             if (includedUids.isNotEmpty()) {
                                 include_uid = includedUids
                             }
                         }
-                    } else if (myUid > 0) {
-                        exclude_uid = listOf(myUid)
+                    } else {
+                        exclude_package = listOf(selfPkg)
+                        if (myUid > 0) {
+                            exclude_uid = listOf(myUid)
+                        }
                     }
 
                     if (DataStore.bypassLan) {

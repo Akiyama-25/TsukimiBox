@@ -145,7 +145,7 @@ class BaseService {
             val proxy = data?.proxy ?: error("core not started")
             if (proxy.isRootDaemon) {
                 val client = Libcore.newHttpClient().apply {
-                    trySocks5(DataStore.mixedPort)
+                    trySocks5(proxy.activeMixedPort)
                 }
                 try {
                     val start = SystemClock.elapsedRealtime()
@@ -331,6 +331,11 @@ class BaseService {
         }
 
         fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+            val previousService = DataStore.baseService
+            if (previousService != null && previousService !== this) {
+                Logs.w("Stopping previous service ${previousService.tag} before starting $tag")
+                previousService.stopRunner()
+            }
             DataStore.baseService = this
 
             val data = data

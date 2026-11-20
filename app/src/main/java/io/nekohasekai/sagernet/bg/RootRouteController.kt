@@ -66,12 +66,47 @@ object RootRouteController {
         }
     }
 
-    private fun buildCleanupCommands(includeTunAndCore: Boolean): String = buildString {
+    const val ROOT_PID_FILE_NAME = "root_singbox.pid"
+
+    private fun buildKillRootCoreCommands(pidFilePath: String? = null): String = buildString {
+        // Pure POSIX /proc scan + PID file kill (does not rely on toybox pkill/pgrep/killall quirks on Android 16)
+        append("kill_singbox() {\n")
+        append("  sig=\"\$1\"\n")
+        if (!pidFilePath.isNullOrBlank()) {
+            append("  if [ -f '$pidFilePath' ]; then\n")
+            append("    pf_pid=\$(cat '$pidFilePath' 2>/dev/null)\n")
+            append("    [ -n \"\$pf_pid\" ] && kill -\"\$sig\" \"\$pf_pid\" 2>/dev/null || true\n")
+            append("  fi\n")
+        }
+        append("  for p in /proc/[0-9]*; do\n")
+        append("    pid=\"\${p#/proc/}\"\n")
+        append("    [ \"\$pid\" = \"\$\$\" ] && continue\n")
+        append("    if [ -r \"\$p/cmdline\" ] && tr '\\0' ' ' < \"\$p/cmdline\" 2>/dev/null | grep -q 'libsingbox\\.so'; then\n")
+        append("      kill -\"\$sig\" \"\$pid\" 2>/dev/null || true\n")
+        append("    fi\n")
+        append("  done\n")
+        append("}\n")
+        append("has_singbox() {\n")
+        append("  for p in /proc/[0-9]*; do\n")
+        append("    pid=\"\${p#/proc/}\"\n")
+        append("    [ \"\$pid\" = \"\$\$\" ] && continue\n")
+        append("    if [ -r \"\$p/cmdline\" ] && tr '\\0' ' ' < \"\$p/cmdline\" 2>/dev/null | grep -q 'libsingbox\\.so'; then\n")
+        append("      return 0\n")
+        append("    fi\n")
+        append("  done\n")
+        append("  return 1\n")
+        append("}\n")
+        append("kill_singbox TERM\n")
+        append("for i in 1 2 3 4 5 6; do has_singbox || break; sleep 0.15; done\n")
+        append("kill_singbox KILL\n")
+        if (!pidFilePath.isNullOrBlank()) {
+            append("rm -f '$pidFilePath' 2>/dev/null || true\n")
+        }
+    }
+
+    private fun buildCleanupCommands(includeTunAndCore: Boolean, pidFilePath: String? = null): String = buildString {
         if (includeTunAndCore) {
-            // Gracefully stop any running root sing-box core so it tears down its own routes/rules
-            append("pkill -TERM -f libsingbox.so 2>/dev/null || killall -TERM libsingbox.so 2>/dev/null || true\n")
-            append("for i in 1 2 3 4 5; do pgrep -f libsingbox.so >/dev/null 2>&1 || break; sleep 0.15; done\n")
-            append("pkill -KILL -f libsingbox.so 2>/dev/null || killall -KILL libsingbox.so 2>/dev/null || true\n")
+            append(buildKillRootCoreCommands(pidFilePath))
         }
 
         // Remove UID=0 VPN takeover rules (current and legacy pref)
@@ -124,12 +159,18 @@ object RootRouteController {
         append("ip route flush cache 2>/dev/null || true\n")
     }
 
+    private fun defaultPidFilePath(): String? = try {
+        File(File(io.nekohasekai.sagernet.SagerNet.application.cacheDir, "tmpcfg"), ROOT_PID_FILE_NAME).absolutePath
+    } catch (_: Throwable) {
+        null
+    }
+
     suspend fun prepareRootEnvironment(ipv6Enabled: Boolean, mtu: Int = 1400): Boolean =
         withContext(Dispatchers.IO) {
             rootModeActive.set(true)
             val script = buildString {
                 // Clean up any stale root core / rules / tun0 from a previous run
-                append(buildCleanupCommands(includeTunAndCore = true))
+                append(buildCleanupCommands(includeTunAndCore = true, pidFilePath = defaultPidFilePath()))
                 // Ensure TUN character device exists (Android uses /dev/tun or /dev/net/tun)
                 append("if [ ! -c /dev/tun ] && [ ! -c /dev/net/tun ]; then ")
                 append("mkdir -p /dev/net 2>/dev/null || true; ")
@@ -197,8 +238,9 @@ object RootRouteController {
     fun stopRootCoreAndCleanup(sync: Boolean = false) {
         active.set(false)
         rootModeActive.set(false)
+        val pidFile = defaultPidFilePath()
         val action = {
-            runSuScript(buildCleanupCommands(includeTunAndCore = true))
+            runSuScript(buildCleanupCommands(includeTunAndCore = true, pidFilePath = pidFile))
             Logs.d("RootRouteController: stopped root core and performed complete route/iptables cleanup")
         }
         if (sync) {
