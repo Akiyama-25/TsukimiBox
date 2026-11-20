@@ -42,12 +42,6 @@ class VpnService : BaseVpnService(),
 
     override suspend fun startProcesses() {
         DataStore.vpnService = this
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.prepareRootEnvironment(
-                DataStore.ipv6Mode != IPv6Mode.DISABLE,
-                DataStore.mtu
-            )
-        }
         super.startProcesses() // launch proxy instance
     }
 
@@ -62,9 +56,6 @@ class VpnService : BaseVpnService(),
     @Suppress("EXPERIMENTAL_API_USAGE")
     override fun killProcesses() {
         RootRouteController.disableRootRouting()
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.cleanupAll()
-        }
         conn?.close()
         conn = null
         super.killProcesses()
@@ -81,7 +72,7 @@ class VpnService : BaseVpnService(),
         ServiceNotification(this, profileName, "service-vpn")
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (DataStore.serviceMode == Key.MODE_VPN || DataStore.serviceMode == Key.MODE_ROOT) {
+        if (DataStore.serviceMode == Key.MODE_VPN) {
             if (prepare(this) != null) {
                 startActivity(
                     Intent(
@@ -100,38 +91,42 @@ class VpnService : BaseVpnService(),
     }
 
     fun startVpn(tunOptionsJson: String, tunPlatformOptionsJson: String): Int {
-//        Logs.d(tunOptionsJson)
-//        Logs.d(tunPlatformOptionsJson)
-//        val tunOptions = JSONObject(tunOptionsJson)
-
         // address & route & MTU ...... use NB4A GUI config
         val builder = Builder().setConfigureIntent(SagerNet.configureIntent(this))
             .setSession(getString(R.string.app_name))
             .setMtu(DataStore.mtu)
         val ipv6Mode = DataStore.ipv6Mode
 
-        // address
-        builder.addAddress(PRIVATE_VLAN4_CLIENT, PRIVATE_VLAN4_PREFIX)
+        // address & DNS (kept strictly consistent with ConfigBuilder tun-in addresses)
+        if (ipv6Mode != IPv6Mode.ONLY) {
+            builder.addAddress(PRIVATE_VLAN4_CLIENT, PRIVATE_VLAN4_PREFIX)
+            builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
+        }
         if (ipv6Mode != IPv6Mode.DISABLE) {
             builder.addAddress(PRIVATE_VLAN6_CLIENT, 126)
+            builder.addDnsServer(PRIVATE_VLAN6_ROUTER)
         }
-        builder.addDnsServer(PRIVATE_VLAN4_ROUTER)
 
         // route
         if (DataStore.bypassLan) {
-            resources.getStringArray(R.array.bypass_private_route).forEach {
-                val subnet = Subnet.fromString(it)!!
-                builder.addRoute(subnet.address.hostAddress!!, subnet.prefixSize)
+            if (ipv6Mode != IPv6Mode.ONLY) {
+                resources.getStringArray(R.array.bypass_private_route).forEach {
+                    val subnet = Subnet.fromString(it)!!
+                    builder.addRoute(subnet.address.hostAddress!!, subnet.prefixSize)
+                }
+                builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
+                builder.addRoute(FAKEDNS_VLAN4_CLIENT, 15)
             }
-            builder.addRoute(PRIVATE_VLAN4_ROUTER, 32)
-            builder.addRoute(FAKEDNS_VLAN4_CLIENT, 15)
             // https://issuetracker.google.com/issues/149636790
             if (ipv6Mode != IPv6Mode.DISABLE) {
                 builder.addRoute("2000::", 3)
+                builder.addRoute(PRIVATE_VLAN6_ROUTER, 128)
                 builder.addRoute(FAKEDNS_VLAN6_CLIENT, 18)
             }
         } else {
-            builder.addRoute("0.0.0.0", 0)
+            if (ipv6Mode != IPv6Mode.ONLY) {
+                builder.addRoute("0.0.0.0", 0)
+            }
             if (ipv6Mode != IPv6Mode.DISABLE) {
                 builder.addRoute("::", 0)
             }
@@ -143,9 +138,9 @@ class VpnService : BaseVpnService(),
         // app route & Root (UID=0) takeover logic
         val packageName = packageName
         val proxyApps = DataStore.proxyApps
-        val forceRootTakeover = DataStore.serviceMode == Key.MODE_ROOT || DataStore.rootTrafficTakeover
+        val forceRootTakeover = DataStore.rootTrafficTakeover
         var bypass = DataStore.bypass
-        val workaroundSYSTEM = false /* DataStore.tunImplementation == TunImplementation.SYSTEM */
+        val workaroundSYSTEM = false
         val needBypassRootUid = !forceRootTakeover && (workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
             it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
         })
@@ -221,6 +216,15 @@ class VpnService : BaseVpnService(),
             } else {
                 Logs.d("Add allow: ${added.joinToString(", ")}")
             }
+        } else {
+            // Global VPN mode: still exclude TsukimiBox itself so UI / OkHttp / direct DoH never loop into TUN.
+            // (Safe because VpnService TUN uses gVisor userspace stack, which does not require self-UID in VPN.)
+            try {
+                builder.addDisallowedApplication(packageName)
+                Logs.d("Add self bypass (global mode): $packageName")
+            } catch (ex: PackageManager.NameNotFoundException) {
+                Logs.w(ex)
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && DataStore.appendHttpProxy) {
@@ -256,9 +260,6 @@ class VpnService : BaseVpnService(),
 
     override fun onDestroy() {
         RootRouteController.disableRootRouting()
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.cleanupAll()
-        }
         DataStore.vpnService = null
         super.onDestroy()
         data.binder.close()

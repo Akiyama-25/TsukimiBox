@@ -216,10 +216,20 @@ fun buildConfig(
                 type = "tun"
                 tag = "tun-in"
                 interface_name = if (isRoot) "tun0" else null
-                stack = when (DataStore.tunImplementation) {
-                    TunImplementation.GVISOR -> "gvisor"
-                    TunImplementation.SYSTEM -> "system"
-                    else -> "mixed"
+                // In VpnService mode, TsukimiBox excludes itself from VPN to avoid self-looping.
+                // sing-tun's "system" and "mixed" TCP stacks require the app's own UID to route back
+                // through tun0 for SYN-ACKs; otherwise all TUN TCP (incl. DoT/853 & DoH/443) breaks.
+                // Therefore force "gvisor" in VpnService mode (pure userspace TCP+UDP, full HTTP/3 QUIC).
+                // In Root mode with auto_redirect, IPv4 TCP is natively redirected by kernel iptables,
+                // while gVisor handles UDP (DNS/QUIC) and IPv6 cleanly.
+                stack = if (isVPN) {
+                    "gvisor"
+                } else {
+                    when (DataStore.tunImplementation) {
+                        TunImplementation.SYSTEM -> "system"
+                        TunImplementation.MIXED -> "mixed"
+                        else -> "gvisor"
+                    }
                 }
                 endpoint_independent_nat = true
                 mtu = DataStore.mtu
@@ -241,9 +251,71 @@ fun buildConfig(
                     }
                 }
                 if (isRoot) {
-                    auto_route = false
-                    auto_redirect = false
+                    auto_route = true
+                    auto_redirect = true
                     strict_route = false
+
+                    val myUid = android.os.Process.myUid()
+                    if (DataStore.proxyApps) {
+                        PackageCache.awaitLoadSync()
+                        val individualApps = DataStore.individual.split('\n').filter { it.isNotBlank() }.toSet()
+                        if (DataStore.bypass) {
+                            val excludedUids = mutableListOf<Int>()
+                            if (myUid > 0) excludedUids.add(myUid)
+                            for (pkg in individualApps) {
+                                val uid = if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
+                                    PackageCache.ROOT_UID
+                                } else {
+                                    PackageCache[pkg]
+                                }
+                                if (uid != null && uid >= 0 && !excludedUids.contains(uid)) {
+                                    excludedUids.add(uid)
+                                }
+                            }
+                            if (excludedUids.isNotEmpty()) {
+                                exclude_uid = excludedUids
+                            }
+                        } else {
+                            val includedUids = mutableListOf<Int>()
+                            for (pkg in individualApps) {
+                                val uid = if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
+                                    PackageCache.ROOT_UID
+                                } else {
+                                    PackageCache[pkg]
+                                }
+                                if (uid != null && uid >= 0 && uid != myUid && !includedUids.contains(uid)) {
+                                    includedUids.add(uid)
+                                }
+                            }
+                            if (includedUids.isNotEmpty()) {
+                                include_uid = includedUids
+                            }
+                        }
+                    } else if (myUid > 0) {
+                        exclude_uid = listOf(myUid)
+                    }
+
+                    if (DataStore.bypassLan) {
+                        if (ipv6Mode != IPv6Mode.ONLY) {
+                            inet4_route_exclude_address = listOf(
+                                "10.0.0.0/8",
+                                "100.64.0.0/10",
+                                "127.0.0.0/8",
+                                "169.254.0.0/16",
+                                "172.16.0.0/12",
+                                "192.168.0.0/16",
+                                "224.0.0.0/4",
+                                "255.255.255.255/32"
+                            )
+                        }
+                        if (ipv6Mode != IPv6Mode.DISABLE) {
+                            inet6_route_exclude_address = listOf(
+                                "::1/128",
+                                "fe80::/10",
+                                "ff00::/8"
+                            )
+                        }
+                    }
                 }
             })
             inbounds.add(Inbound_MixedOptions().apply {
@@ -587,6 +659,7 @@ fun buildConfig(
                         if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-fake"
                             inbound = listOf("tun-in")
+                            query_type = listOf("A", "AAAA")
                         }
                         userDNSRuleList += makeDnsRuleObj().apply {
                             server = "dns-remote"
@@ -675,7 +748,38 @@ fun buildConfig(
         })
 
         dns.servers.add(DNSServerOptions().apply {
-            address = "local"
+            // Standalone root sing-box binary cannot use "local" on Android (/etc/resolv.conf does not exist).
+            // Resolve the real physical network DNS IP from ConnectivityManager, falling back to 223.5.5.5.
+            address = if (isRoot && !forTest) {
+                var resolvedDns: String? = null
+                try {
+                    val network = SagerNet.underlyingNetwork
+                    val linkProps = if (network != null) {
+                        SagerNet.connectivity.getLinkProperties(network)
+                    } else null
+                    val dnsServers = linkProps?.dnsServers.orEmpty()
+                    val preferred = if (ipv6Mode == IPv6Mode.ONLY) {
+                        dnsServers.firstOrNull {
+                            it is java.net.Inet6Address && !it.isLoopbackAddress && !it.isLinkLocalAddress
+                        }
+                    } else {
+                        dnsServers.firstOrNull {
+                            it is java.net.Inet4Address && !it.isLoopbackAddress &&
+                                !(it.hostAddress ?: "").startsWith("172.19.0.")
+                        } ?: dnsServers.firstOrNull {
+                            !it.isLoopbackAddress && !it.isLinkLocalAddress
+                        }
+                    }
+                    val host = preferred?.hostAddress?.substringBefore('%')
+                    if (!host.isNullOrBlank()) {
+                        resolvedDns = if (host.contains(':')) "udp://[$host]:53" else "udp://$host:53"
+                    }
+                } catch (_: Throwable) {
+                }
+                resolvedDns ?: if (ipv6Mode == IPv6Mode.ONLY) "udp://[2400:3200::1]:53" else "udp://223.5.5.5:53"
+            } else {
+                "local"
+            }
             tag = "dns-local"
             detour = TAG_DIRECT
         })
@@ -749,6 +853,7 @@ fun buildConfig(
                 })
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     inbound = listOf("tun-in")
+                    query_type = listOf("A", "AAAA")
                     server = "dns-fake"
                     disable_cache = true
                 })

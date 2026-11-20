@@ -35,9 +35,13 @@ abstract class BoxInstance(
     val pluginConfigs = hashMapOf<Int, Pair<Int, String>>()
     val externalInstances = hashMapOf<Int, AbstractInstance>()
     open lateinit var processes: GuardedProcessPool
-    private var cacheFiles = ArrayList<File>()
+    protected var cacheFiles = ArrayList<File>()
+    open val isRootDaemon: Boolean get() = false
+
+    fun hasInProcessBox(): Boolean = ::box.isInitialized
+
     fun isInitialized(): Boolean {
-        return ::config.isInitialized && ::box.isInitialized
+        return ::config.isInitialized && (isRootDaemon || ::box.isInitialized)
     }
 
     protected fun initPlugin(name: String): PluginManager.InitResult {
@@ -199,7 +203,9 @@ abstract class BoxInstance(
             }
         }
 
-        box.start()
+        if (!isRootDaemon) {
+            box.start()
+        }
     }
 
     @Suppress("EXPERIMENTAL_API_USAGE")

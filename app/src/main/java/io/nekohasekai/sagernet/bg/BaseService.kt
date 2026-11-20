@@ -53,12 +53,14 @@ class BaseService {
                 // Action.SWITCH_WAKE_LOCK -> runOnDefaultDispatcher { service.switchWakeLock() }
                 PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        if (SagerNet.power.isDeviceIdleMode) {
-                            proxy?.box?.sleep()
-                        } else {
-                            proxy?.box?.wake()
-                            if (DataStore.wakeResetConnections) {
-                                Libcore.resetAllConnections(true)
+                        if (proxy?.hasInProcessBox() == true) {
+                            if (SagerNet.power.isDeviceIdleMode) {
+                                proxy?.box?.sleep()
+                            } else {
+                                proxy?.box?.wake()
+                                if (DataStore.wakeResetConnections) {
+                                    Libcore.resetAllConnections(true)
+                                }
                             }
                         }
                     }
@@ -140,12 +142,30 @@ class BaseService {
         }
 
         override fun urlTest(): Int {
-            if (data?.proxy?.box == null) {
+            val proxy = data?.proxy ?: error("core not started")
+            if (proxy.isRootDaemon) {
+                val client = Libcore.newHttpClient().apply {
+                    trySocks5(DataStore.mixedPort)
+                }
+                try {
+                    val start = SystemClock.elapsedRealtime()
+                    val req = client.newRequest().apply {
+                        setURL(DataStore.connectionTestURL)
+                    }
+                    req.execute()
+                    return (SystemClock.elapsedRealtime() - start).toInt().coerceAtLeast(1)
+                } catch (e: Exception) {
+                    error(Protocols.genFriendlyMsg(e.readableMessage))
+                } finally {
+                    client.close()
+                }
+            }
+            if (!proxy.hasInProcessBox()) {
                 error("core not started")
             }
             try {
                 return Libcore.urlTest(
-                    data!!.proxy!!.box, DataStore.connectionTestURL, 3000
+                    proxy.box, DataStore.connectionTestURL, 3000
                 )
             } catch (e: Exception) {
                 error(Protocols.genFriendlyMsg(e.readableMessage))
@@ -201,6 +221,7 @@ class BaseService {
         }
 
         fun canReloadSelector(): Boolean {
+            if (data.proxy?.isRootDaemon == true) return false
             if ((data.proxy?.config?.selectorGroupId ?: -1L) < 0) return false
             val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy) ?: return false
             val tmpBox = ProxyInstance(ent)

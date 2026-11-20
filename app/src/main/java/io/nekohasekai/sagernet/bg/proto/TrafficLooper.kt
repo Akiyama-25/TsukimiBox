@@ -105,6 +105,7 @@ class TrafficLooper
 
             if (trafficUpdater == null) {
                 if (!proxy.isInitialized()) continue
+                if (proxy.isRootDaemon || !proxy.hasInProcessBox()) return
                 idMap.clear()
                 idMap[-1] = itemBypass
                 //

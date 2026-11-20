@@ -2326,6 +2326,12 @@ public class SingBoxOptions {
         public List<String> inet6_route_address;
 
         // Generate note: Listable
+        public List<String> inet4_route_exclude_address;
+
+        // Generate note: Listable
+        public List<String> inet6_route_exclude_address;
+
+        // Generate note: Listable
         public List<String> include_interface;
 
         // Generate note: Listable
@@ -2830,6 +2836,12 @@ public class SingBoxOptions {
 
         // Generate note: Listable
         public List<String> inet6_route_address;
+
+        // Generate note: Listable
+        public List<String> inet4_route_exclude_address;
+
+        // Generate note: Listable
+        public List<String> inet6_route_exclude_address;
 
         // Generate note: Listable
         public List<String> include_interface;

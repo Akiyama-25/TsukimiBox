@@ -26,24 +26,27 @@ class ProxyService : Service(), BaseService.Interface {
 
     override suspend fun startProcesses() {
         if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.prepareRootEnvironment(
+            val ok = RootRouteController.prepareRootEnvironment(
                 DataStore.ipv6Mode != IPv6Mode.DISABLE,
                 DataStore.mtu
             )
+            if (!ok) {
+                throw IllegalStateException("Root permission (su) is required for Root AutoRedirect mode")
+            }
         }
         super.startProcesses()
     }
 
     override fun killProcesses() {
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.cleanupAll()
-        }
         super.killProcesses()
+        if (DataStore.serviceMode == Key.MODE_ROOT) {
+            RootRouteController.stopRootCoreAndCleanup(sync = false)
+        }
     }
 
     override fun onDestroy() {
         if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.cleanupAll()
+            RootRouteController.stopRootCoreAndCleanup(sync = false)
         }
         super.onDestroy()
         data.binder.close()
