@@ -197,14 +197,18 @@ fun buildConfig(
         }
 
         fun autoDnsDomainStrategy(s: String): String? {
+            if (ipv6Mode == IPv6Mode.DISABLE) {
+                return "ipv4_only"
+            }
+            if (ipv6Mode == IPv6Mode.ONLY) {
+                return "ipv6_only"
+            }
             if (s.isNotEmpty()) {
                 return s
             }
             return when (ipv6Mode) {
-                IPv6Mode.DISABLE -> "ipv4_only"
                 IPv6Mode.ENABLE -> "prefer_ipv4"
                 IPv6Mode.PREFER -> "prefer_ipv6"
-                IPv6Mode.ONLY -> "ipv6_only"
                 else -> null
             }
         }
@@ -500,6 +504,12 @@ fun buildConfig(
                     _hack_config_map["domain_strategy"] =
                         if (forTest) "" else defaultServerDomainStrategy
 
+                    // Allow outer UDP fragmentation so encapsulated QUIC/HTTP3 datagrams
+                    // do not silently drop with EMSGSIZE on mobile/PPPoE paths (sing-box defaults to false).
+                    if (bean !is ConfigBean) {
+                        _hack_config_map["udp_fragment"] = true
+                    }
+
                     _hack_config_map["tag"] = tagOut
 
                     _hack_custom_config = bean.customOutboundJson
@@ -717,6 +727,7 @@ fun buildConfig(
         for (freedom in arrayOf(TAG_DIRECT, TAG_BYPASS)) outbounds.add(Outbound().apply {
             tag = freedom
             type = "direct"
+            _hack_config_map["udp_fragment"] = true
         })
 
         // Bypass Lookup for the first profile

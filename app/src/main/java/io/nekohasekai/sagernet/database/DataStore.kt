@@ -106,7 +106,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var mtu by configurationStore.stringToInt(Key.MTU) { 1280 }
 
     val effectiveTunMtu: Int
-        get() = mtu.coerceIn(1280, 1400)
+        get() = mtu.coerceIn(1280, 1500)
 
     var bypassLan by configurationStore.boolean(Key.BYPASS_LAN)
     var bypassLanInCore by configurationStore.boolean(Key.BYPASS_LAN_IN_CORE)
