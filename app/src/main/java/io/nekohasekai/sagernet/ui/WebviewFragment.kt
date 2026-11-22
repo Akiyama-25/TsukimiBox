@@ -48,7 +48,14 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                 super.onPageFinished(view, url)
             }
         }
-        mWebView.loadUrl(DataStore.yacdURL)
+        fun resolveUrlWithSecret(rawUrl: String): String {
+            val secret = DataStore.clashApiSecret
+            if (secret.isBlank() || !rawUrl.startsWith("http://127.0.0.1:9090")) return rawUrl
+            if (rawUrl.contains("secret=")) return rawUrl
+            val sep = if (rawUrl.contains("?")) "&" else "?"
+            return "${rawUrl}${sep}hostname=127.0.0.1&port=9090&secret=${android.net.Uri.encode(secret)}"
+        }
+        mWebView.loadUrl(resolveUrlWithSecret(DataStore.yacdURL))
     }
 
     @SuppressLint("CheckResult")

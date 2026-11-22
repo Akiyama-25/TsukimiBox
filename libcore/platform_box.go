@@ -29,6 +29,9 @@ type boxPlatformInterfaceWrapper struct{}
 
 func (w *boxPlatformInterfaceWrapper) ReadWIFIState() adapter.WIFIState {
 	state := strings.Split(intfBox.WIFIState(), ",")
+	if len(state) < 2 {
+		return adapter.WIFIState{}
+	}
 	return adapter.WIFIState{
 		SSID:  state[0],
 		BSSID: state[1],
@@ -144,6 +147,9 @@ func (w *boxPlatformInterfaceWrapper) FindProcessInfo(ctx context.Context, netwo
 		uid, err = intfBox.FindConnectionOwner(ipProtocol, source.Addr().String(), int32(source.Port()), destination.Addr().String(), int32(destination.Port()))
 		if err != nil {
 			return nil, err
+		}
+		if uid < 0 {
+			return nil, E.New("android: connection owner not found")
 		}
 	}
 	packageName, _ := intfBox.PackageNameByUid(uid)

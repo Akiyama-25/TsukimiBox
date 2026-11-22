@@ -242,7 +242,7 @@ func (r *httpRequest) doH3Direct() (HTTPResponse, error) {
 	funcs := []requestFunc{
 		// Http(s) With Ech
 		func() (response *http.Response, err error) {
-			request := r.request.Clone(context.Background())
+			request := r.request.Clone(ctx)
 			echClient := &http.Client{
 				Transport: &http.Transport{
 					DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -265,7 +265,7 @@ func (r *httpRequest) doH3Direct() (HTTPResponse, error) {
 		},
 		// H3 HTTPS
 		func() (response *http.Response, err error) {
-			request := r.request.Clone(context.Background())
+			request := r.request.Clone(ctx)
 			h3Client := &http.Client{
 				Transport: &http3.Transport{
 					TLSClientConfig: r.tls.Clone(),

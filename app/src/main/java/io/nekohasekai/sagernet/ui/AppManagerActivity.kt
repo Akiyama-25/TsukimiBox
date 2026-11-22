@@ -181,6 +181,12 @@ class AppManagerActivity : ThemedActivity() {
 
     private fun isProxiedApp(app: ProxiedApp) = proxiedUids[app.uid]
 
+    private var askedInstalledAppsPermission = false
+    private val requestInstalledAppsPermission =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) loadApps()
+        }
+
     @UiThread
     private fun loadApps() {
         loader?.cancel()
@@ -189,9 +195,22 @@ class AppManagerActivity : ThemedActivity() {
             val adapter = binding.list.adapter as AppsAdapter
             withContext(Dispatchers.IO) { adapter.reload() }
             adapter.filter.filter(binding.search.text?.toString() ?: "")
-            if (apps.isEmpty()) {
+            val hasRealApps = apps.any {
+                it.packageName != PackageCache.ROOT_PACKAGE_NAME && it.uid != PackageCache.ROOT_UID
+            }
+            if (!hasRealApps) {
                 binding.list.visibility = View.GONE
                 binding.appPlaceholder.root.crossFadeFrom(loading)
+                if (!askedInstalledAppsPermission) {
+                    askedInstalledAppsPermission = true
+                    val perm = "com.android.permission.GET_INSTALLED_APPS"
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(
+                            this@AppManagerActivity, perm
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        runCatching { requestInstalledAppsPermission.launch(perm) }
+                    }
+                }
             } else {
                 binding.list.crossFadeFrom(loading)
             }
@@ -347,20 +366,19 @@ class AppManagerActivity : ThemedActivity() {
                     val bypass = DataStore.bypass
                     proxiedUids.clear()
                     for (app in cachedApps) {
+                        val appUid = app.value.applicationInfo?.uid ?: continue
+                        if (app.key == PackageCache.ROOT_PACKAGE_NAME || appUid == PackageCache.ROOT_UID) {
+                            continue
+                        }
                         val needProxy =
-                            needProxyAppsList.contains(app.key) || (app.value.applicationInfo?.uid
-                                ?: 0) == 1000
+                            needProxyAppsList.contains(app.key) || appUid == 1000
                         if (needProxy) {
                             if (!bypass) {
-                                app.value.applicationInfo?.apply {
-                                    proxiedUids[uid] = true
-                                }
+                                proxiedUids[appUid] = true
                             }
                         } else {
                             if (bypass) {
-                                app.value.applicationInfo?.apply {
-                                    proxiedUids[uid] = true
-                                }
+                                proxiedUids[appUid] = true
                             }
                         }
                     }

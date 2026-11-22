@@ -12,8 +12,18 @@ import io.nekohasekai.sagernet.database.DataStore
 class ProxyService : Service(), BaseService.Interface {
     override val data = BaseService.Data(this)
     override val tag: String get() = "SagerNetProxyService"
-    override fun createNotification(profileName: String): ServiceNotification =
-        ServiceNotification(this, profileName, "service-proxy", true)
+
+    @Volatile
+    private var startedInRootMode = false
+
+    override fun createNotification(profileName: String): ServiceNotification {
+        val channel = if (startedInRootMode || DataStore.serviceMode == Key.MODE_ROOT) {
+            "service-root"
+        } else {
+            "service-proxy"
+        }
+        return ServiceNotification(this, profileName, channel, true)
+    }
 
     override var wakeLock: PowerManager.WakeLock? = null
     override var upstreamInterfaceName: String? = null
@@ -25,34 +35,51 @@ class ProxyService : Service(), BaseService.Interface {
     }
 
     override suspend fun startProcesses() {
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
+        val rootMode = data.proxy?.isRootDaemon ?: (DataStore.serviceMode == Key.MODE_ROOT)
+        startedInRootMode = rootMode
+        if (rootMode) {
             val ok = RootRouteController.prepareRootEnvironment(
                 DataStore.ipv6Mode != IPv6Mode.DISABLE,
                 DataStore.effectiveTunMtu
             )
             if (!ok) {
+                startedInRootMode = false
                 throw IllegalStateException("Root permission (su) is required for Root AutoRedirect mode")
             }
         }
         super.startProcesses()
+        if (rootMode) {
+            data.proxy?.awaitRootReady()
+        }
     }
 
     override fun killProcesses() {
+        val wasRootMode = startedInRootMode || (data.proxy?.isRootDaemon == true)
         super.killProcesses()
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
+        if (wasRootMode) {
             RootRouteController.stopRootCoreAndCleanup(sync = false)
+            startedInRootMode = false
         }
     }
 
     override fun onDestroy() {
-        if (DataStore.serviceMode == Key.MODE_ROOT) {
-            RootRouteController.stopRootCoreAndCleanup(sync = false)
+        val wasRootMode = startedInRootMode || RootRouteController.isAnyRootStateActive()
+        if (wasRootMode) {
+            RootRouteController.cleanupSyncBounded(1500L)
+            startedInRootMode = false
         }
         super.onDestroy()
         data.binder.close()
     }
 
     override fun onBind(intent: Intent) = super.onBind(intent)
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        super<BaseService.Interface>.onStartCommand(intent, flags, startId)
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (DataStore.serviceMode == Key.MODE_VPN) {
+            data.notification = ServiceNotification(this, "", "service-proxy", true)
+            stopRunner()
+            return START_NOT_STICKY
+        }
+        startedInRootMode = DataStore.serviceMode == Key.MODE_ROOT
+        return super<BaseService.Interface>.onStartCommand(intent, flags, startId)
+    }
 }

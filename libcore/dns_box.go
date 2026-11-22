@@ -21,7 +21,7 @@ import (
 	mDNS "github.com/miekg/dns"
 )
 
-var rawQueryFunc func(networkHandle int64, request []byte) ([]byte, error)
+var rawQueryFunc func(ctx context.Context, networkHandle int64, request []byte) ([]byte, error)
 
 type LocalDNSTransport interface {
 	Raw() bool
@@ -62,7 +62,7 @@ func (p *platformLocalDNSTransport) Exchange(ctx context.Context, message *mDNS.
 		if err != nil {
 			return nil, err
 		}
-		msg, err := rawQueryFunc(p.iif.NetworkHandle(), messageBytes)
+		msg, err := rawQueryFunc(ctx, p.iif.NetworkHandle(), messageBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -145,6 +145,7 @@ func (c *ExchangeContext) Success(result string) {
 	}), func(it string) netip.Addr {
 		return M.ParseSocksaddrHostPort(it, 0).Unwrap().Addr
 	})
+	c.done()
 }
 
 func (c *ExchangeContext) RawSuccess(result []byte) {

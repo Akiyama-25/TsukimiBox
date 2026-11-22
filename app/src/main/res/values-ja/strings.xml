@@ -550,4 +550,8 @@
     <string name="cag_language">言語</string>
     <string name="app_language">アプリの言語</string>
     <string name="language_system">システムに従う</string>
+    <string name="service_mode_root">Root（自動リダイレクト）</string>
+    <string name="root_superuser_label">Root (Superuser)</string>
+    <string name="root_traffic_takeover">Root 通信を強制プロキシ (ip rule)</string>
+    <string name="root_traffic_takeover_summary">VPN 有効時に su 経由で UID=0 用高優先度 ip rule を注入する</string>
 </resources>

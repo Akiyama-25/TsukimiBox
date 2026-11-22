@@ -117,7 +117,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var globalCustomConfig by configurationStore.string(Key.GLOBAL_CUSTOM_CONFIG) { "" }
 
-    var remoteDns by configurationStore.string(Key.REMOTE_DNS) { "https://dns.google/dns-query" }
+    var remoteDns by configurationStore.string(Key.REMOTE_DNS) { "https://8.8.8.8/dns-query" }
     var directDns by configurationStore.string(Key.DIRECT_DNS) { "https://223.5.5.5/dns-query" }
     var enableDnsRouting by configurationStore.boolean(Key.ENABLE_DNS_ROUTING) { true }
     var enableFakeDns by configurationStore.boolean(Key.ENABLE_FAKEDNS) { true }
@@ -138,7 +138,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
             mixedPort = mixedPort
         }
         if (!configurationStore.getBoolean("mtu_migrated_quic_v2", false)) {
-            if (mtu > 1400 || mtu < 1280) {
+            if (mtu > 1500 || mtu < 1280) {
                 mtu = 1280
             }
             configurationStore.putBoolean("mtu_migrated_quic_v2", true)
@@ -174,6 +174,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var profileTrafficStatistics by configurationStore.boolean(Key.PROFILE_TRAFFIC_STATISTICS) { true }
 
     var yacdURL by configurationStore.string("yacdURL") { "http://127.0.0.1:9090/ui" }
+    var clashApiSecret by configurationStore.string("clashApiSecret") {
+        java.util.UUID.randomUUID().toString().replace("-", "")
+    }
 
     // protocol
 

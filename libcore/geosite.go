@@ -2,6 +2,7 @@ package libcore
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	geosites "github.com/sagernet/sing-box/common/geosite"
@@ -11,13 +12,32 @@ import (
 )
 
 type geosite struct {
+	file          *os.File
 	geositeReader *geosites.Reader
 }
 
 func (g *geosite) Open(path string) error {
-	geositeReader, _, err := geosites.Open(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	geositeReader, _, err := geosites.NewReader(f)
+	if err != nil {
+		f.Close()
+		return err
+	}
+	g.file = f
 	g.geositeReader = geositeReader
-	return err
+	return nil
+}
+
+func (g *geosite) Close() error {
+	if g.file != nil {
+		err := g.file.Close()
+		g.file = nil
+		return err
+	}
+	return nil
 }
 
 func (g *geosite) Rules(code string) ([]option.HeadlessRule, error) {
@@ -49,6 +69,7 @@ func init() {
 		if err := g.Open(filepath.Join(externalAssetsPath, "geosite.db")); err != nil {
 			return nil, err
 		}
+		defer g.Close()
 		return g.Rules(name)
 	}
 }

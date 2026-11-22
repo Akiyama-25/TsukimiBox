@@ -135,6 +135,8 @@ public class SingBoxOptions {
 
         public String default_mode;
 
+        public List<String> access_control_allow_origin;
+
         // Generate note: option type:  public List<String> ModeList;
 
     }

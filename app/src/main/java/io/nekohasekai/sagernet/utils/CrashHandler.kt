@@ -35,6 +35,11 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         } catch (e: Exception) {
         }
 
+        try {
+            io.nekohasekai.sagernet.bg.RootRouteController.cleanupSyncBounded(1500L)
+        } catch (_: Throwable) {
+        }
+
         ProcessPhoenix.triggerRebirth(app, Intent(app, BlankActivity::class.java).apply {
             putExtra("sendLog", "NB4A Crash")
         })

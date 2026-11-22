@@ -52,6 +52,7 @@ import (
 	"github.com/sagernet/sing-box/protocol/vmess"
 	"github.com/sagernet/sing-box/protocol/wireguard"
 	singService "github.com/sagernet/sing/service"
+	"github.com/sagernet/sing/service/filemanager"
 
 	_ "github.com/sagernet/sing-box/experimental/clashapi"
 	_ "github.com/sagernet/sing-box/transport/v2rayquic"
@@ -102,7 +103,12 @@ func registerGeoHooks(dir string) {
 	}
 
 	nekoutils.GetGeoSiteHeadlessRules = func(name string) ([]option.HeadlessRule, error) {
-		reader, _, err := geosites.Open(filepath.Join(assetsDir, "geosite.db"))
+		f, err := os.Open(filepath.Join(assetsDir, "geosite.db"))
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		reader, _, err := geosites.NewReader(f)
 		if err != nil {
 			return nil, err
 		}
@@ -210,6 +216,8 @@ func main() {
 	configPath := fs.String("c", "", "path to sing-box config json")
 	assetsPath := fs.String("a", "", "path to external assets directory (geoip.db/geosite.db)")
 	workDir := fs.String("w", "", "working directory")
+	appUid := fs.Int("uid", -1, "android app uid for file ownership")
+	appGid := fs.Int("gid", -1, "android app gid for file ownership")
 	if err := fs.Parse(args); err != nil {
 		log.Fatalf("parse flags: %v", err)
 	}
@@ -219,6 +227,13 @@ func main() {
 	}
 	if *workDir != "" {
 		if err := os.MkdirAll(*workDir, 0755); err == nil {
+			if *appUid >= 0 {
+				gid := *appGid
+				if gid < 0 {
+					gid = *appUid
+				}
+				_ = os.Chown(*workDir, *appUid, gid)
+			}
 			_ = os.Chdir(*workDir)
 		}
 	}
@@ -244,6 +259,13 @@ func main() {
 		buildServiceRegistry(),
 	)
 	ctx = singService.ContextWithDefaultRegistry(ctx)
+	if *appUid >= 0 {
+		gid := *appGid
+		if gid < 0 {
+			gid = *appUid
+		}
+		ctx = filemanager.WithDefault(ctx, *workDir, "", *appUid, gid)
+	}
 
 	var options option.Options
 	if err := options.UnmarshalJSONContext(ctx, configBytes); err != nil {

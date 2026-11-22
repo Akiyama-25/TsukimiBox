@@ -4,7 +4,9 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.ProxyInfo
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -74,13 +76,26 @@ class VpnService : BaseVpnService(),
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (DataStore.serviceMode == Key.MODE_VPN) {
             if (prepare(this) != null) {
-                startActivity(
-                    Intent(
-                        this, VpnRequestActivity::class.java
-                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+                runCatching {
+                    startActivity(
+                        Intent(
+                            this, VpnRequestActivity::class.java
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.onFailure {
+                    Logs.w("Failed to start VpnRequestActivity from background: ${it.message}")
+                }
             } else return super<BaseService.Interface>.onStartCommand(intent, flags, startId)
         }
+        // Satisfy startForeground() before stopping (using SPECIAL_USE when OP_ACTIVATE_VPN may be absent)
+        data.notification = ServiceNotification(
+            this,
+            "",
+            "service-vpn",
+            foregroundServiceType = if (Build.VERSION.SDK_INT >= 34) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else null
+        )
         stopRunner()
         return Service.START_NOT_STICKY
     }
@@ -88,6 +103,35 @@ class VpnService : BaseVpnService(),
     inner class NullConnectionException : NullPointerException(),
         BaseService.ExpectedException {
         override fun getLocalizedMessage() = getString(R.string.reboot_required)
+    }
+
+    inner class EmptyWhitelistException : IllegalStateException(),
+        BaseService.ExpectedException {
+        override fun getLocalizedMessage() =
+            "Per-app VPN whitelist has no valid allowed apps (would create a global self-loop)"
+    }
+
+    @Suppress("DEPRECATION")
+    private fun queryAllNetworkPackages(): List<PackageInfo> {
+        val pm = packageManager
+        val pkgFlags = PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.GET_PERMISSIONS
+        val packages = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(pkgFlags.toLong()))
+            } else {
+                pm.getInstalledPackages(pkgFlags)
+            }
+        } catch (e: Exception) {
+            Logs.w("Failed to get installed packages with permissions: ${e.message}")
+            emptyList()
+        }
+        return packages.filter {
+            when (it.packageName) {
+                packageName -> false
+                "android" -> true
+                else -> it.requestedPermissions?.contains(Manifest.permission.INTERNET) == true
+            }
+        }
     }
 
     fun startVpn(tunOptionsJson: String, tunPlatformOptionsJson: String): Int {
@@ -140,46 +184,51 @@ class VpnService : BaseVpnService(),
         val proxyApps = DataStore.proxyApps
         val forceRootTakeover = DataStore.rootTrafficTakeover
         var bypass = DataStore.bypass
-        val workaroundSYSTEM = false
-        val needBypassRootUid = !forceRootTakeover && (workaroundSYSTEM || data.proxy!!.config.trafficMap.values.any {
-            it[0].hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP
-        })
+        val hasFakeTcp = data.proxy?.config?.trafficMap?.values?.any { chain ->
+            chain.any { it.hysteriaBean?.protocol == HysteriaBean.PROTOCOL_FAKETCP }
+        } == true
+        if (forceRootTakeover && hasFakeTcp) {
+            Logs.w("Hysteria FakeTCP plugin runs as root; suppressing rootTrafficTakeover to prevent self-loop")
+        }
+        val effectiveRootTakeover = forceRootTakeover && !hasFakeTcp
+        val needBypassRootUid = !effectiveRootTakeover && hasFakeTcp
 
         if (proxyApps || needBypassRootUid) {
             val individual = mutableSetOf<String>()
-            val allApps by lazy {
-                val pm = packageManager
-                val packages = try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
-                    }
-                } catch (e: Exception) {
-                    Logs.w("Failed to get installed packages with permissions: ${e.message}")
-                    emptyList()
-                }
-                packages.filter {
-                    when (it.packageName) {
-                        packageName -> false
-                        "android" -> true
-                        else -> it.requestedPermissions?.contains(Manifest.permission.INTERNET) == true
-                    }
-                }.map {
-                    it.packageName
-                }
-            }
+            val allNetworkPackages by lazy { queryAllNetworkPackages() }
+            val allApps by lazy { allNetworkPackages.map { it.packageName } }
+
             if (proxyApps) {
-                individual.addAll(DataStore.individual.split('\n').filter { it.isNotBlank() })
+                individual.addAll(
+                    DataStore.individual.split('\n').map { it.trim() }.filter { it.isNotBlank() }
+                )
                 individual.remove(PackageCache.ROOT_PACKAGE_NAME)
 
-                // Only invert Blacklist -> Whitelist when root must be explicitly bypassed (e.g. fakeTCP)
-                if (bypass && needBypassRootUid) {
-                    val individualNew = allApps.toMutableList()
-                    individualNew.removeAll(individual)
+                // Protected Whitelist -> Blacklist inversion when UID=0 takeover is enabled:
+                // keeps UID=0 in Android's native SECURE_VPN range (fixing netd DNS & UID=0 lookup)
+                // while guarding sharedUserId peers so allowed UIDs are never inadvertently excluded.
+                if (!bypass && effectiveRootTakeover) {
+                    val pkgList = allNetworkPackages
+                    if (pkgList.isNotEmpty()) {
+                        val allowedUids = pkgList.mapNotNull { pkg ->
+                            if (pkg.packageName in individual) pkg.applicationInfo?.uid else null
+                        }.toHashSet()
+                        val disallowed = pkgList.filter { pkg ->
+                            val uid = pkg.applicationInfo?.uid ?: -1
+                            pkg.packageName !in individual && (uid < 0 || uid !in allowedUids)
+                        }.map { it.packageName }
+                        individual.clear()
+                        individual.addAll(disallowed)
+                        bypass = true
+                        Logs.d("Inverted VPN whitelist to blacklist (${individual.size} disallowed packages) for UID=0 takeover")
+                    } else {
+                        Logs.w("Skipping whitelist->blacklist inversion because package list is empty; relying on RootRouteController")
+                    }
+                } else if (bypass && needBypassRootUid) {
+                    val allowed = allApps.toMutableList()
+                    allowed.removeAll(individual)
                     individual.clear()
-                    individual.addAll(individualNew)
+                    individual.addAll(allowed)
                     bypass = false
                 }
             } else {
@@ -187,18 +236,20 @@ class VpnService : BaseVpnService(),
                 bypass = false
             }
 
-            val added = mutableListOf<String>()
-
-            individual.apply {
-                remove(PackageCache.ROOT_PACKAGE_NAME)
-                if (bypass) {
-                    // In Blacklist (Disallow) mode, add TsukimiBox so it is excluded from the VPN tunnel.
-                    add(packageName)
-                } else {
-                    // In Whitelist (Allow) mode, ensure TsukimiBox is NOT in allowed list, keeping it outside the VPN tunnel.
-                    remove(packageName)
+            individual.remove(PackageCache.ROOT_PACKAGE_NAME)
+            if (bypass) {
+                // In Blacklist (Disallow) mode, always exclude TsukimiBox itself from VPN tunnel.
+                individual.add(packageName)
+            } else {
+                // In Whitelist (Allow) mode, ensure TsukimiBox itself is never allowed.
+                individual.remove(packageName)
+                if (individual.isEmpty()) {
+                    throw EmptyWhitelistException()
                 }
-            }.forEach {
+            }
+
+            val added = mutableListOf<String>()
+            individual.forEach {
                 try {
                     if (bypass) {
                         builder.addDisallowedApplication(it)
@@ -211,14 +262,17 @@ class VpnService : BaseVpnService(),
                 }
             }
 
+            if (!bypass && added.isEmpty()) {
+                throw EmptyWhitelistException()
+            }
+
             if (bypass) {
                 Logs.d("Add bypass: ${added.joinToString(", ")}")
             } else {
                 Logs.d("Add allow: ${added.joinToString(", ")}")
             }
         } else {
-            // Global VPN mode: still exclude TsukimiBox itself so UI / OkHttp / direct DoH never loop into TUN.
-            // (Safe because VpnService TUN uses gVisor userspace stack, which does not require self-UID in VPN.)
+            // Global VPN mode: always exclude TsukimiBox itself so UI / direct DoH never loop into TUN.
             try {
                 builder.addDisallowedApplication(packageName)
                 Logs.d("Add self bypass (global mode): $packageName")
@@ -235,10 +289,11 @@ class VpnService : BaseVpnService(),
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
 
-        if (forceRootTakeover) {
+        if (effectiveRootTakeover) {
             RootRouteController.enableRootRouting(
-                ipv6Enabled = ipv6Mode != IPv6Mode.DISABLE,
-                privateVlan4Client = PRIVATE_VLAN4_CLIENT
+                ipv6Mode = ipv6Mode,
+                privateVlan4Client = PRIVATE_VLAN4_CLIENT,
+                privateVlan6Client = PRIVATE_VLAN6_CLIENT
             )
         } else {
             RootRouteController.disableRootRouting()
@@ -249,9 +304,12 @@ class VpnService : BaseVpnService(),
 
     fun updateUnderlyingNetwork(builder: Builder? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            SagerNet.underlyingNetwork?.let {
-                builder?.setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
-                    ?: setUnderlyingNetworks(arrayOf(SagerNet.underlyingNetwork))
+            val network = SagerNet.underlyingNetwork
+            if (network != null) {
+                val networks = arrayOf(network)
+                builder?.setUnderlyingNetworks(networks) ?: setUnderlyingNetworks(networks)
+            } else if (builder == null) {
+                setUnderlyingNetworks(null)
             }
         }
     }
@@ -259,7 +317,7 @@ class VpnService : BaseVpnService(),
     override fun onRevoke() = stopRunner()
 
     override fun onDestroy() {
-        RootRouteController.disableRootRouting()
+        RootRouteController.cleanupSyncBounded(1500L)
         DataStore.vpnService = null
         super.onDestroy()
         data.binder.close()

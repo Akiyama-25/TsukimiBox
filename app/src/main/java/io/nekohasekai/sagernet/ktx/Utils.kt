@@ -254,14 +254,26 @@ fun Fragment.needRestart() {
     }.show()
 }
 
+suspend fun stopServiceAndWait(timeoutMs: Long = 3500L) {
+    val state = DataStore.serviceState
+    if (state == BaseService.State.Stopped || state == BaseService.State.Idle) return
+    SagerNet.stopService()
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+        val cur = DataStore.serviceState
+        if (cur == BaseService.State.Stopped || cur == BaseService.State.Idle) break
+        delay(50)
+    }
+}
+
 fun triggerFullRestart(ctx: Context) {
+    val appCtx = ctx.applicationContext
     runOnDefaultDispatcher {
-        SagerNet.stopService()
-        delay(500)
+        stopServiceAndWait()
         SagerConnection.restartingApp = true
         val connection = SagerConnection(SagerConnection.CONNECTION_ID_RESTART_BG)
-        connection.connect(ctx, RestartCallback {
-            ProcessPhoenix.triggerRebirth(ctx, Intent(ctx, MainActivity::class.java))
+        connection.connect(appCtx, RestartCallback {
+            ProcessPhoenix.triggerRebirth(appCtx, Intent(appCtx, MainActivity::class.java))
         })
     }
 }

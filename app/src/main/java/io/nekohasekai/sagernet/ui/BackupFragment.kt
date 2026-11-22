@@ -69,8 +69,12 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
                 .setMessage(R.string.reset_settings_message)
                 .setNegativeButton(R.string.no, null)
                 .setPositiveButton(R.string.yes) { _, _ ->
-                    DataStore.configurationStore.reset()
-                    triggerFullRestart(requireContext())
+                    val ctx = requireContext().applicationContext
+                    runOnDefaultDispatcher {
+                        stopServiceAndWait()
+                        DataStore.configurationStore.reset()
+                        triggerFullRestart(ctx)
+                    }
                 }
                 .show()
         }
@@ -236,15 +240,17 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
                         .setView(binding.root)
                         .setCancelable(false)
                         .show()
+                    val appCtx = requireContext().applicationContext
                     runOnDefaultDispatcher {
                         runCatching {
+                            stopServiceAndWait()
                             finishImport(
                                 content,
                                 import.backupConfigurations.isChecked,
                                 import.backupRules.isChecked,
                                 import.backupSettings.isChecked
                             )
-                            triggerFullRestart(requireContext())
+                            triggerFullRestart(appCtx)
                         }.onFailure {
                             Logs.w(it)
                             onMainDispatcher {

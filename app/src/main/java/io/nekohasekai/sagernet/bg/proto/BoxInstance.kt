@@ -194,7 +194,11 @@ abstract class BoxInstance(
                         )
 
                         if (bean.protocol == HysteriaBean.PROTOCOL_FAKETCP) {
-                            commands.addAll(0, listOf("su", "-c"))
+                            val cmdLine = io.nekohasekai.sagernet.utils.Commandline.toString(commands)
+                            commands.clear()
+                            commands.add(io.nekohasekai.sagernet.bg.RootRouteController.getSuBinary())
+                            commands.add("-c")
+                            commands.add(cmdLine)
                         }
 
                         processes.start(commands)

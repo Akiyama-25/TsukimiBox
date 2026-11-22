@@ -148,18 +148,55 @@ fun buildConfig(
         return trimmed
     }
 
+    val ipv6Mode = if (forTest) IPv6Mode.ENABLE else DataStore.ipv6Mode
+    val resolvedPhysicalDns: String by lazy {
+        var resolved: String? = null
+        try {
+            val network = SagerNet.underlyingNetwork
+            val linkProps = if (network != null) {
+                SagerNet.connectivity.getLinkProperties(network)
+            } else null
+            val dnsServers = linkProps?.dnsServers.orEmpty()
+            val preferred = if (ipv6Mode == IPv6Mode.ONLY) {
+                dnsServers.firstOrNull {
+                    it is java.net.Inet6Address && !it.isLoopbackAddress && !it.isLinkLocalAddress
+                }
+            } else {
+                dnsServers.firstOrNull {
+                    it is java.net.Inet4Address && !it.isLoopbackAddress &&
+                        !(it.hostAddress ?: "").startsWith("172.19.0.")
+                } ?: dnsServers.firstOrNull {
+                    !it.isLoopbackAddress && !it.isLinkLocalAddress
+                }
+            }
+            val host = preferred?.hostAddress?.substringBefore('%')
+            if (!host.isNullOrBlank()) {
+                resolved = if (host.contains(':')) "udp://[$host]:53" else "udp://$host:53"
+            }
+        } catch (_: Throwable) {
+        }
+        resolved ?: if (ipv6Mode == IPv6Mode.ONLY) "udp://[2400:3200::1]:53" else "udp://223.5.5.5:53"
+    }
+
+    fun normalizeRootLocalDns(addr: String): String {
+        return if (isRoot && !forTest && addr.equals("local", ignoreCase = true)) {
+            resolvedPhysicalDns
+        } else {
+            addr
+        }
+    }
+
     val remoteDns = DataStore.remoteDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-        .map { normalizeDnsAddress(it) }
+        .map { normalizeRootLocalDns(normalizeDnsAddress(it)) }
     val directDNS = DataStore.directDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-        .map { normalizeDnsAddress(it) }
+        .map { normalizeRootLocalDns(normalizeDnsAddress(it)) }
     val enableDnsRouting = DataStore.enableDnsRouting
     val useFakeDns = DataStore.enableFakeDns && !forTest
     val needSniff = DataStore.trafficSniffing > 0
     val needSniffOverride = DataStore.trafficSniffing == 2
     val externalIndexMap = ArrayList<IndexEntity>()
-    val ipv6Mode = if (forTest) IPv6Mode.ENABLE else DataStore.ipv6Mode
 
     fun genDomainStrategy(noAsIs: Boolean): String {
         return when {
@@ -175,7 +212,12 @@ fun buildConfig(
         if (!forTest && DataStore.enableClashAPI) experimental = ExperimentalOptions().apply {
             clash_api = ClashAPIOptions().apply {
                 external_controller = "127.0.0.1:9090"
-                external_ui = "../files/yacd"
+                secret = DataStore.clashApiSecret
+                access_control_allow_origin = listOf("http://127.0.0.1:9090")
+                val yacdDirReady = !isRoot || java.io.File(SagerNet.application.filesDir, "yacd").isDirectory
+                if (yacdDirReady) {
+                    external_ui = "../files/yacd"
+                }
             }
         }
 
@@ -247,11 +289,10 @@ fun buildConfig(
                 }
                 if (isRoot) {
                     auto_route = true
-                    auto_redirect = true
+                    // sing-tun@v0.7.10 auto_redirect only supports IPv4 iptables REDIRECT on Android
+                    auto_redirect = ipv6Mode != IPv6Mode.ONLY
                     strict_route = false
 
-                    // Standalone root sing-box reads /data/system/packages.list natively, so use
-                    // include_package / exclude_package directly (immune to Android 16 PackageCache limits).
                     val selfPkg = SagerNet.application.packageName
                     val myUid = android.os.Process.myUid()
                     if (DataStore.proxyApps) {
@@ -263,9 +304,10 @@ fun buildConfig(
                             val excludedPkgs = linkedSetOf(selfPkg)
                             val excludedUids = mutableListOf<Int>()
                             if (myUid > 0) excludedUids.add(myUid)
+                            val forceTakeover = DataStore.rootTrafficTakeover
                             for (pkg in individualApps) {
                                 if (pkg == PackageCache.ROOT_PACKAGE_NAME) {
-                                    if (!excludedUids.contains(PackageCache.ROOT_UID)) {
+                                    if (!forceTakeover && !excludedUids.contains(PackageCache.ROOT_UID)) {
                                         excludedUids.add(PackageCache.ROOT_UID)
                                     }
                                 } else {
@@ -291,11 +333,23 @@ fun buildConfig(
                                     includedPkgs.add(pkg)
                                 }
                             }
-                            if (includedPkgs.isNotEmpty()) {
-                                include_package = includedPkgs.toList()
+                            // In Android Root AutoRedirect whitelist mode, UID 0 (netd/dnsproxyd)
+                            // must stay in include_uid; otherwise sing-tun puts UID 0 in excludeRanges
+                            // and all whitelisted apps leak DNS queries through physical netd.
+                            if (!includedUids.contains(PackageCache.ROOT_UID)) {
+                                includedUids.add(PackageCache.ROOT_UID)
                             }
-                            if (includedUids.isNotEmpty()) {
-                                include_uid = includedUids
+                            if (includedPkgs.isEmpty() && includedUids.isEmpty()) {
+                                // Safety fallback: never emit empty include+exclude (which loops self)
+                                exclude_package = listOf(selfPkg)
+                                if (myUid > 0) exclude_uid = listOf(myUid)
+                            } else {
+                                if (includedPkgs.isNotEmpty()) {
+                                    include_package = includedPkgs.toList()
+                                }
+                                if (includedUids.isNotEmpty()) {
+                                    include_uid = includedUids
+                                }
                             }
                         }
                     } else {
@@ -306,14 +360,14 @@ fun buildConfig(
                     }
 
                     if (DataStore.bypassLan) {
+                        // In Android Root mode, RFC1918 subnets (especially 192.168.0.0/16 and
+                        // 172.16.0.0/12 covering 172.19.0.0/30) must NOT be excluded from table 2022,
+                        // otherwise LAN router DNS (port 53) bypasses hijack-dns and leaks. Private IP
+                        // bypass is handled inside core routing rules after port 53 hijack-dns.
                         if (ipv6Mode != IPv6Mode.ONLY) {
                             inet4_route_exclude_address = listOf(
-                                "10.0.0.0/8",
-                                "100.64.0.0/10",
                                 "127.0.0.0/8",
                                 "169.254.0.0/16",
-                                "172.16.0.0/12",
-                                "192.168.0.0/16",
                                 "224.0.0.0/4",
                                 "255.255.255.255/32"
                             )
@@ -666,26 +720,40 @@ fun buildConfig(
                     }
                 }
 
-                when (rule.outbound) {
-                    -1L -> {
-                        userDNSRuleList += makeDnsRuleObj().apply { server = "dns-direct" }
-                    }
+                val hasNonDnsMatchCondition = rule.ip.isNotBlank() ||
+                    rule.port.isNotBlank() ||
+                    rule.sourcePort.isNotBlank() ||
+                    rule.network.isNotBlank() ||
+                    rule.source.isNotBlank() ||
+                    rule.protocol.isNotBlank() ||
+                    rule.config.isNotBlank()
+                val shouldGenerateDnsRule =
+                    domainList != null || (uidList.isNotEmpty() && !hasNonDnsMatchCondition)
 
-                    0L -> {
-                        if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
-                            server = "dns-fake"
-                            inbound = listOf("tun-in")
-                            query_type = listOf("A", "AAAA")
+                if (shouldGenerateDnsRule) {
+                    when (rule.outbound) {
+                        -1L -> {
+                            userDNSRuleList += makeDnsRuleObj().apply { server = "dns-direct" }
                         }
-                        userDNSRuleList += makeDnsRuleObj().apply {
-                            server = "dns-remote"
-                        }
-                    }
 
-                    -2L -> {
-                        userDNSRuleList += makeDnsRuleObj().apply {
-                            server = "dns-block"
-                            disable_cache = true
+                        -2L -> {
+                            userDNSRuleList += makeDnsRuleObj().apply {
+                                server = "dns-block"
+                                disable_cache = true
+                            }
+                        }
+
+                        else -> {
+                            if (rule.outbound == 0L || rule.outbound == proxy.id || tagMap.containsKey(rule.outbound)) {
+                                if (useFakeDns) userDNSRuleList += makeDnsRuleObj().apply {
+                                    server = "dns-fake"
+                                    inbound = listOf("tun-in")
+                                    query_type = listOf("A", "AAAA")
+                                }
+                                userDNSRuleList += makeDnsRuleObj().apply {
+                                    server = "dns-remote"
+                                }
+                            }
                         }
                     }
                 }
@@ -766,37 +834,7 @@ fun buildConfig(
 
         dns.servers.add(DNSServerOptions().apply {
             // Standalone root sing-box binary cannot use "local" on Android (/etc/resolv.conf does not exist).
-            // Resolve the real physical network DNS IP from ConnectivityManager, falling back to 223.5.5.5.
-            address = if (isRoot && !forTest) {
-                var resolvedDns: String? = null
-                try {
-                    val network = SagerNet.underlyingNetwork
-                    val linkProps = if (network != null) {
-                        SagerNet.connectivity.getLinkProperties(network)
-                    } else null
-                    val dnsServers = linkProps?.dnsServers.orEmpty()
-                    val preferred = if (ipv6Mode == IPv6Mode.ONLY) {
-                        dnsServers.firstOrNull {
-                            it is java.net.Inet6Address && !it.isLoopbackAddress && !it.isLinkLocalAddress
-                        }
-                    } else {
-                        dnsServers.firstOrNull {
-                            it is java.net.Inet4Address && !it.isLoopbackAddress &&
-                                !(it.hostAddress ?: "").startsWith("172.19.0.")
-                        } ?: dnsServers.firstOrNull {
-                            !it.isLoopbackAddress && !it.isLinkLocalAddress
-                        }
-                    }
-                    val host = preferred?.hostAddress?.substringBefore('%')
-                    if (!host.isNullOrBlank()) {
-                        resolvedDns = if (host.contains(':')) "udp://[$host]:53" else "udp://$host:53"
-                    }
-                } catch (_: Throwable) {
-                }
-                resolvedDns ?: if (ipv6Mode == IPv6Mode.ONLY) "udp://[2400:3200::1]:53" else "udp://223.5.5.5:53"
-            } else {
-                "local"
-            }
+            address = if (isRoot && !forTest) resolvedPhysicalDns else "local"
             tag = "dns-local"
             detour = TAG_DIRECT
         })
@@ -842,15 +880,18 @@ fun buildConfig(
                 port = listOf(53)
                 action = "hijack-dns"
             })
-            if (DataStore.bypassLanInCore) {
+            if (DataStore.bypassLanInCore || (isRoot && DataStore.bypassLan)) {
                 route.rules.add(Rule_DefaultOptions().apply {
                     outbound = TAG_BYPASS
                     ip_is_private = true
                 })
             }
-            // block mcast
+            // block mcast (dst or src in separate OR-ed rules)
             route.rules.add(Rule_DefaultOptions().apply {
                 ip_cidr = listOf("224.0.0.0/3", "ff00::/8")
+                action = "reject"
+            })
+            route.rules.add(Rule_DefaultOptions().apply {
                 source_ip_cidr = listOf("224.0.0.0/3", "ff00::/8")
                 action = "reject"
             })

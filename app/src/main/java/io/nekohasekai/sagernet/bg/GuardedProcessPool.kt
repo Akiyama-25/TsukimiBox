@@ -43,10 +43,13 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
         }
 
         @DelicateCoroutinesApi
-        suspend fun looper(onRestartCallback: (suspend () -> Unit)?) {
+        suspend fun looper(
+            onRestartCallback: (suspend () -> Unit)?,
+            onBeforeRestartCallback: (suspend () -> Unit)?
+        ) {
             var running = true
             val cmdName = File(cmd.first()).nameWithoutExtension
-            val exitChannel = Channel<Int>()
+            val exitChannel = Channel<Int>(Channel.CONFLATED)
             try {
                 while (true) {
                     thread(name = "stderr-$cmdName") {
@@ -55,7 +58,7 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                     thread(name = "stdout-$cmdName") {
                         streamLogger(process.inputStream) { Libcore.nekoLogPrintln("[$cmdName] $it") }
                         // this thread also acts as a daemon thread for waitFor
-                        runBlocking { exitChannel.send(process.waitFor()) }
+                        runBlocking { exitChannel.trySend(process.waitFor()) }
                     }
                     val startTime = SystemClock.elapsedRealtime()
                     val exitCode = exitChannel.receive()
@@ -69,6 +72,7 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                         else -> Logs.w(IOException("$cmdName unexpectedly exits with code $exitCode"))
                     }
                     Logs.i("restart process: ${Commandline.toString(cmd)} (last exit code: $exitCode)")
+                    onBeforeRestartCallback?.invoke()
                     start()
                     running = true
                     onRestartCallback?.invoke()
@@ -93,7 +97,7 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
                         if (withTimeoutOrNull(1000) { exitChannel.receive() } != null) return@withContext
                         process.destroyForcibly()           // Force to kill the process if it's still alive
                     }
-                    exitChannel.receive()
+                    withTimeoutOrNull(2000) { exitChannel.receive() }
                 }                                           // otherwise process already exited, nothing to be done
             }
         }
@@ -106,12 +110,13 @@ class GuardedProcessPool(private val onFatal: suspend (IOException) -> Unit) : C
     fun start(
         cmd: List<String>,
         env: MutableMap<String, String> = mutableMapOf(),
-        onRestartCallback: (suspend () -> Unit)? = null
+        onRestartCallback: (suspend () -> Unit)? = null,
+        onBeforeRestartCallback: (suspend () -> Unit)? = null
     ) {
         Logs.i("start process: ${Commandline.toString(cmd)}")
         Guard(cmd, env).apply {
             start() // if start fails, IOException will be thrown directly
-            launch { looper(onRestartCallback) }
+            launch { looper(onRestartCallback, onBeforeRestartCallback) }
         }
         processCount += 1
     }

@@ -156,15 +156,26 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             true
         }
 
-        serviceMode.setOnPreferenceChangeListener { _, _ ->
-            if (DataStore.serviceState.started) SagerNet.stopService()
-            true
-        }
-
         val tunImplementation = findPreference<SimpleMenuPreference>(Key.TUN_IMPLEMENTATION)!!
         val resolveDestination = findPreference<SwitchPreference>(Key.RESOLVE_DESTINATION)!!
         val acquireWakeLock = findPreference<SwitchPreference>(Key.ACQUIRE_WAKE_LOCK)!!
         val enableClashAPI = findPreference<SwitchPreference>(Key.ENABLE_CLASH_API)!!
+
+        fun updateModeDependentPreferences(mode: String) {
+            rootTrafficTakeover?.isEnabled = mode == Key.MODE_VPN || mode == Key.MODE_ROOT
+            appendHttpProxy.isEnabled = mode == Key.MODE_VPN
+            // ConfigBuilder locks TUN stack to gVisor to avoid VpnService self-looping; reflect this in UI.
+            tunImplementation.value = io.nekohasekai.sagernet.TunImplementation.GVISOR.toString()
+            tunImplementation.isEnabled = false
+        }
+        updateModeDependentPreferences(DataStore.serviceMode)
+
+        serviceMode.setOnPreferenceChangeListener { _, newValue ->
+            if (DataStore.serviceState.started) SagerNet.stopService()
+            updateModeDependentPreferences(newValue as String)
+            true
+        }
+
         enableClashAPI.setOnPreferenceChangeListener { _, newValue ->
             (activity as MainActivity?)?.refreshNavMenu(newValue as Boolean)
             needReload()

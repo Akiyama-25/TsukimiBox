@@ -67,10 +67,21 @@ class BaseService {
                 }
 
                 Action.RESET_UPSTREAM_CONNECTIONS -> runOnDefaultDispatcher {
-                    Libcore.resetAllConnections(true)
+                    val p = proxy
+                    val handled = if (p?.isRootDaemon == true) {
+                        p.resetRootUpstreamConnections()
+                    } else {
+                        Libcore.resetAllConnections(true)
+                        true
+                    }
                     runOnMainDispatcher {
                         Util.collapseStatusBar(ctx)
-                        Toast.makeText(ctx, "Reset upstream connections done", Toast.LENGTH_SHORT)
+                        val msg = if (handled) {
+                            "Reset upstream connections done"
+                        } else {
+                            "Enable Clash API to reset connections in Root mode"
+                        }
+                        Toast.makeText(ctx, msg, Toast.LENGTH_SHORT)
                             .show()
                     }
                 }
@@ -108,6 +119,7 @@ class BaseService {
 
         override fun registerCallback(cb: ISagerNetServiceCallback, id: Int) {
             if (id == SagerConnection.CONNECTION_ID_RESTART_BG) {
+                RootRouteController.cleanupSyncBounded(2000L)
                 Runtime.getRuntime().exit(0)
                 return
             }
@@ -308,14 +320,31 @@ class BaseService {
         var upstreamInterfaceName: String?
 
         suspend fun preInit() {
-            DefaultNetworkListener.start(this) {
-                SagerNet.connectivity.getLinkProperties(it)?.also { link ->
-                    SagerNet.underlyingNetwork = it
+            if (SagerNet.underlyingNetwork == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val active = SagerNet.connectivity.activeNetwork
+                val caps = active?.let { SagerNet.connectivity.getNetworkCapabilities(it) }
+                if (active != null && caps != null && !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) {
+                    SagerNet.underlyingNetwork = active
+                    upstreamInterfaceName = SagerNet.connectivity.getLinkProperties(active)?.interfaceName
+                }
+            }
+            val initialReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+            DefaultNetworkListener.start(this) { network ->
+                if (network == null) {
+                    SagerNet.underlyingNetwork = null
+                    upstreamInterfaceName = null
                     DataStore.vpnService?.updateUnderlyingNetwork()
-                    //
+                    initialReady.complete(Unit)
+                    return@start
+                }
+                SagerNet.connectivity.getLinkProperties(network)?.also { link ->
+                    SagerNet.underlyingNetwork = network
+                    DataStore.vpnService?.updateUnderlyingNetwork()
+                    initialReady.complete(Unit)
                     val oldName = upstreamInterfaceName
                     if (oldName != link.interfaceName) {
                         upstreamInterfaceName = link.interfaceName
+                        RootRouteController.resyncIfEnabled()
                     }
                     if (oldName != null && upstreamInterfaceName != null && oldName != upstreamInterfaceName) {
                         Logs.d("Network changed: $oldName -> $upstreamInterfaceName")
@@ -323,6 +352,11 @@ class BaseService {
                             Libcore.resetAllConnections(true)
                         }
                     }
+                }
+            }
+            if (SagerNet.underlyingNetwork == null) {
+                kotlinx.coroutines.withTimeoutOrNull(800L) {
+                    initialReady.await()
                 }
             }
         }
@@ -399,6 +433,15 @@ class BaseService {
             data.connectingJob = runOnMainDispatcher {
                 try {
                     data.notification = createNotification(ServiceNotification.genTitle(profile))
+
+                    if (previousService != null && previousService !== this@Interface) {
+                        val deadline = SystemClock.elapsedRealtime() + 2500L
+                        while (previousService.data.state != State.Stopped &&
+                            SystemClock.elapsedRealtime() < deadline
+                        ) {
+                            delay(50)
+                        }
+                    }
 
                     Executable.killAll()    // clean up old processes
                     preInit()

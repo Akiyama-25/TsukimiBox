@@ -27,8 +27,12 @@ func Unxz(archive string, path string) error {
 		return err
 	}
 	_, err = io.Copy(o, r)
+	closeErr := o.Close()
 	i.Close()
-	return err
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func Unzip(archive string, path string) error {

@@ -1,6 +1,7 @@
 package io.nekohasekai.sagernet.bg.proto
 
 import io.nekohasekai.sagernet.BuildConfig
+import io.nekohasekai.sagernet.IPv6Mode
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.BaseService
@@ -17,22 +18,42 @@ import moe.matsuri.nb4a.utils.JavaUtil
 import org.json.JSONObject
 import java.io.File
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.net.Socket
 
 class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = null) :
     BoxInstance(profile) {
 
     var notTmp = true
 
+    // Latch launch mode at construction time so switching serviceMode while running
+    // still tears down root core cleanly in close().
+    private val launchedInRootMode = DataStore.serviceMode == Key.MODE_ROOT
+
     override val isRootDaemon: Boolean
-        get() = notTmp && DataStore.serviceMode == Key.MODE_ROOT
+        get() = notTmp && launchedInRootMode
 
     @Volatile
     var activeMixedPort: Int = DataStore.mixedPort
 
+    @Volatile
+    var activeClashApiPort: Int = 0
+
     private fun isTcpPortAvailable(host: String, port: Int): Boolean {
         return try {
             ServerSocket(port, 1, InetAddress.getByName(host)).use { true }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun isTcpPortListening(host: String, port: Int, timeoutMs: Int = 100): Boolean {
+        return try {
+            Socket().use { sock ->
+                sock.connect(InetSocketAddress(host, port), timeoutMs)
+                true
+            }
         } catch (_: Throwable) {
             false
         }
@@ -53,7 +74,9 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
             available = isTcpPortAvailable(bindHost, preferredPort)
         }
         val needMixedPatch = !available
-        val clashApiBusy = DataStore.enableClashAPI && !isTcpPortAvailable(LOCALHOST, 9090)
+        val clashApiWanted = DataStore.enableClashAPI
+        val clashApiBusy = clashApiWanted && !isTcpPortAvailable(LOCALHOST, 9090)
+        activeClashApiPort = if (clashApiWanted && !clashApiBusy) 9090 else 0
         if (!needMixedPatch && !clashApiBusy) {
             return config.config
         }
@@ -141,13 +164,32 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
             cacheFiles.add(configFile)
 
             val pidFile = File(cacheDir, RootRouteController.ROOT_PID_FILE_NAME)
+            runCatching { pidFile.delete() }
             val assetsDir = SagerNet.application.externalAssets.absolutePath
-            val workDir = SagerNet.application.noBackupFilesDir.absolutePath
+            val rootWorkDir = File(SagerNet.application.noBackupFilesDir, "root_core").apply {
+                mkdirs()
+            }.absolutePath
+            val myUid = android.os.Process.myUid()
             val suBin = RootRouteController.getSuBinary()
-            val shellCmd = "echo \$\$ > '${pidFile.absolutePath}'; exec '${singBoxBin.absolutePath}' run -c '${configFile.absolutePath}' -a '$assetsDir' -w '$workDir'"
+            val shellCmd = buildString {
+                append("echo \$\$ > '").append(pidFile.absolutePath).append("'; ")
+                append("exec '").append(singBoxBin.absolutePath).append("' run ")
+                append("-c '").append(configFile.absolutePath).append("' ")
+                append("-a '").append(assetsDir).append("' ")
+                append("-w '").append(rootWorkDir).append("' ")
+                append("-uid ").append(myUid).append(' ')
+                append("-gid ").append(myUid)
+            }
 
+            val ipv6Enabled = DataStore.ipv6Mode != IPv6Mode.DISABLE
+            val tunMtu = DataStore.effectiveTunMtu
             Logs.i("Starting root sing-box AutoRedirect core via $suBin (mixedPort=$activeMixedPort)")
-            processes.start(listOf(suBin, "-c", shellCmd))
+            processes.start(
+                cmd = listOf(suBin, "-c", shellCmd),
+                onBeforeRestartCallback = {
+                    RootRouteController.prepareRootEnvironment(ipv6Enabled, tunMtu)
+                }
+            )
             return
         }
 
@@ -156,6 +198,43 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
         runOnDefaultDispatcher {
             looper = service?.let { TrafficLooper(it.data, this) }
             looper?.start()
+        }
+    }
+
+    suspend fun awaitRootReady(timeoutMs: Long = 2000L) {
+        if (!isRootDaemon) return
+        val pidFile = File(File(SagerNet.application.cacheDir, "tmpcfg"), RootRouteController.ROOT_PID_FILE_NAME)
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val ready = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                pidFile.exists() && isTcpPortListening(LOCALHOST, activeMixedPort, 80)
+            }
+            if (ready) return
+            kotlinx.coroutines.delay(60)
+        }
+    }
+
+    fun resetRootUpstreamConnections(): Boolean {
+        val port = activeClashApiPort
+        if (port <= 0) return false
+        return try {
+            val url = java.net.URL("http://$LOCALHOST:$port/connections")
+            val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                connectTimeout = 1500
+                readTimeout = 1500
+                val secret = DataStore.clashApiSecret
+                if (secret.isNotBlank()) {
+                    setRequestProperty("Authorization", "Bearer $secret")
+                }
+            }
+            try {
+                conn.responseCode in 200..299
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Throwable) {
+            false
         }
     }
 

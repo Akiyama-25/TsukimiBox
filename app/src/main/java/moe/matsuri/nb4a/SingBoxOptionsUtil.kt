@@ -5,6 +5,16 @@ import moe.matsuri.nb4a.SingBoxOptions.RuleSet
 
 object SingBoxOptionsUtil {
 
+    internal fun resolveServerDomainStrategy(configured: String?, ipv6Mode: Int): String {
+        val autoStrategy = when (ipv6Mode) {
+            io.nekohasekai.sagernet.IPv6Mode.DISABLE -> "ipv4_only"
+            io.nekohasekai.sagernet.IPv6Mode.ONLY -> "ipv6_only"
+            io.nekohasekai.sagernet.IPv6Mode.PREFER -> "prefer_ipv6"
+            else -> "prefer_ipv4"
+        }
+        return (configured ?: "").replace("auto", autoStrategy)
+    }
+
     fun domainStrategy(tag: String): String {
         fun auto2(key: String, newS: String): String {
             return (DataStore.configurationStore.getString(key) ?: "").replace("auto", newS)
@@ -20,7 +30,10 @@ object SingBoxOptionsUtil {
 
             // server
             else -> {
-                auto2("domain_strategy_for_server", "prefer_ipv4")
+                resolveServerDomainStrategy(
+                    DataStore.configurationStore.getString("domain_strategy_for_server"),
+                    DataStore.ipv6Mode
+                )
             }
         }
     }
@@ -28,11 +41,11 @@ object SingBoxOptionsUtil {
 }
 
 fun SingBoxOptions.DNSRule_DefaultOptions.makeSingBoxRule(list: List<String>) {
-    rule_set = mutableListOf<String>()
-    domain = mutableListOf<String>()
-    domain_suffix = mutableListOf<String>()
-    domain_regex = mutableListOf<String>()
-    domain_keyword = mutableListOf<String>()
+    rule_set = (rule_set ?: mutableListOf()).toMutableList()
+    domain = (domain ?: mutableListOf()).toMutableList()
+    domain_suffix = (domain_suffix ?: mutableListOf()).toMutableList()
+    domain_regex = (domain_regex ?: mutableListOf()).toMutableList()
+    domain_keyword = (domain_keyword ?: mutableListOf()).toMutableList()
     list.forEach {
         if (it.startsWith("geosite:")) {
             rule_set.plusAssign(it)
@@ -96,14 +109,14 @@ fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) 
 
 fun SingBoxOptions.Rule_DefaultOptions.makeSingBoxRule(list: List<String>, isIP: Boolean) {
     if (isIP) {
-        ip_cidr = mutableListOf<String>()
-        rule_set = mutableListOf<String>()
+        ip_cidr = (ip_cidr ?: mutableListOf()).toMutableList()
+        rule_set = (rule_set ?: mutableListOf()).toMutableList()
     } else {
-        rule_set = mutableListOf<String>()
-        domain = mutableListOf<String>()
-        domain_suffix = mutableListOf<String>()
-        domain_regex = mutableListOf<String>()
-        domain_keyword = mutableListOf<String>()
+        rule_set = (rule_set ?: mutableListOf()).toMutableList()
+        domain = (domain ?: mutableListOf()).toMutableList()
+        domain_suffix = (domain_suffix ?: mutableListOf()).toMutableList()
+        domain_regex = (domain_regex ?: mutableListOf()).toMutableList()
+        domain_keyword = (domain_keyword ?: mutableListOf()).toMutableList()
     }
     list.forEach {
         if (isIP) {
@@ -139,6 +152,7 @@ fun SingBoxOptions.Rule_DefaultOptions.makeSingBoxRule(list: List<String>, isIP:
     domain_regex?.removeIf { it.isNullOrBlank() }
     domain_keyword?.removeIf { it.isNullOrBlank() }
     if (ip_cidr?.isEmpty() == true) ip_cidr = null
+    if (rule_set?.isEmpty() == true) rule_set = null
     if (domain?.isEmpty() == true) domain = null
     if (domain_suffix?.isEmpty() == true) domain_suffix = null
     if (domain_regex?.isEmpty() == true) domain_regex = null

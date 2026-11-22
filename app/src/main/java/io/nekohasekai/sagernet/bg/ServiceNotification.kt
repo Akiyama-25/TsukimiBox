@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
 import android.os.Build
 import android.text.format.Formatter
@@ -38,8 +39,11 @@ import kotlinx.coroutines.sync.withLock
  * See also: https://github.com/aosp-mirror/platform_frameworks_base/commit/070d142993403cc2c42eca808ff3fafcee220ac4
  */
 class ServiceNotification(
-    private val service: BaseService.Interface, title: String,
-    private val channel: String, visible: Boolean = false,
+    private val service: BaseService.Interface,
+    title: String,
+    private val channel: String,
+    visible: Boolean = false,
+    private val foregroundServiceType: Int? = null,
 ) : BroadcastReceiver() {
     companion object {
         const val notificationId = 1
@@ -55,7 +59,11 @@ class ServiceNotification(
 
     var listenPostSpeed = true
 
+    @Volatile
+    private var destroyed = false
+
     suspend fun postNotificationSpeedUpdate(stats: SpeedDisplayData) {
+        if (destroyed) return
         useBuilder {
             if (showDirectSpeed) {
                 val speedDetail = (service as Context).getString(
@@ -95,6 +103,7 @@ class ServiceNotification(
     }
 
     suspend fun postNotificationTitle(newTitle: String) {
+        if (destroyed) return
         useBuilder {
             it.setContentTitle(newTitle)
         }
@@ -102,6 +111,7 @@ class ServiceNotification(
     }
 
     suspend fun postNotificationWakeLockStatus(acquired: Boolean) {
+        if (destroyed) return
         updateActions()
         useBuilder {
             it.priority =
@@ -126,7 +136,9 @@ class ServiceNotification(
 
     private suspend fun useBuilder(f: (NotificationCompat.Builder) -> Unit) {
         buildLock.withLock {
-            f(builder)
+            if (!destroyed) {
+                f(builder)
+            }
         }
     }
 
@@ -142,9 +154,13 @@ class ServiceNotification(
             addAction(Intent.ACTION_SCREEN_OFF)
         })
 
+        // Satisfy Android's startForeground() contract immediately before any stopRunner()/stopSelf()
+        startForegroundSync()
         runOnMainDispatcher {
-            updateActions()
-            show()
+            if (!destroyed) {
+                updateActions()
+                update()
+            }
         }
     }
 
@@ -170,7 +186,10 @@ class ServiceNotification(
             val resetUpstreamAction = NotificationCompat.Action.Builder(
                 0, service.getString(R.string.reset_connections),
                 PendingIntent.getBroadcast(
-                    service, 0, Intent(Action.RESET_UPSTREAM_CONNECTIONS), flags
+                    service,
+                    0,
+                    Intent(Action.RESET_UPSTREAM_CONNECTIONS).setPackage(service.packageName),
+                    flags
                 )
             ).setShowsUserInterface(false).build()
             it.addAction(resetUpstreamAction)
@@ -183,47 +202,74 @@ class ServiceNotification(
         }
     }
 
+    private fun resolveForegroundServiceType(): Int {
+        if (foregroundServiceType != null) return foregroundServiceType
+        return if (service is VpnService) {
+            FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+        } else {
+            FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        }
+    }
 
-    private suspend fun show() =
-        useBuilder {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val nm = (service as Context).getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-                    if (nm != null && nm.getNotificationChannel(channel) == null) {
-                        val name = (service as Context).getString(R.string.service_proxy)
-                        val nc = android.app.NotificationChannel(channel, name, android.app.NotificationManager.IMPORTANCE_LOW)
-                        nm.createNotificationChannel(nc)
-                    }
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ctx = service as Context
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            if (nm != null && nm.getNotificationChannel(channel) == null) {
+                val labelRes = when (channel) {
+                    "service-vpn" -> R.string.service_vpn
+                    "service-root" -> R.string.service_mode_root
+                    else -> R.string.service_proxy
                 }
-                if (Build.VERSION.SDK_INT >= 34) {
-                    (service as Service).startForeground(
-                        notificationId,
-                        it.build(),
-                        FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
-                    )
-                } else {
-                    (service as Service).startForeground(notificationId, it.build())
-                }
-            } catch (e: Exception) {
-                Toast.makeText(
-                    SagerNet.application,
-                    "startForeground: $e",
-                    Toast.LENGTH_LONG
-                ).show()
+                val nc = android.app.NotificationChannel(
+                    channel,
+                    ctx.getString(labelRes),
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                )
+                nm.createNotificationChannel(nc)
             }
         }
+    }
+
+    private fun startForegroundSync() {
+        if (destroyed) return
+        try {
+            ensureNotificationChannel()
+            val notification = builder.build()
+            if (Build.VERSION.SDK_INT >= 34) {
+                (service as Service).startForeground(
+                    notificationId,
+                    notification,
+                    resolveForegroundServiceType()
+                )
+            } else {
+                (service as Service).startForeground(notificationId, notification)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(
+                SagerNet.application,
+                "startForeground: $e",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     private suspend fun update() = useBuilder {
         NotificationManagerCompat.from(service as Service).notify(notificationId, it.build())
     }
 
     fun destroy() {
+        destroyed = true
         listenPostSpeed = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             (service as Service).stopForeground(Service.STOP_FOREGROUND_REMOVE)
         } else {
+            @Suppress("DEPRECATION")
             (service as Service).stopForeground(true)
         }
-        service.unregisterReceiver(this)
+        try {
+            (service as Context).unregisterReceiver(this)
+        } catch (_: IllegalArgumentException) {
+        }
     }
 }

@@ -10,8 +10,10 @@ import (
 var systemRoots *x509.CertPool
 
 func updateRootCACerts(pem []byte) {
-	x509.SystemCertPool()
-	roots := x509.NewCertPool()
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
 	if !roots.AppendCertsFromPEM(pem) {
 		log.Println("failed to append certificates from pem")
 		return

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	_ "unsafe"
 
 	"log"
@@ -20,6 +21,20 @@ import (
 
 //go:linkname resourcePaths github.com/sagernet/sing-box/constant.resourcePaths
 var resourcePaths []string
+
+var (
+	coreInitMu   sync.Mutex
+	coreInitDone chan struct{}
+)
+
+func waitCoreInitAssets() {
+	coreInitMu.Lock()
+	ch := coreInitDone
+	coreInitMu.Unlock()
+	if ch != nil {
+		<-ch
+	}
+}
 
 func NekoLogPrintln(s string) {
 	log.Println(s)
@@ -67,8 +82,14 @@ func InitCore(process, cachePath, internalAssets, externalAssets string,
 	// nekoutils
 	nekoutils.Selector_OnProxySelected = intfNB4A.Selector_OnProxySelected
 
+	done := make(chan struct{})
+	coreInitMu.Lock()
+	coreInitDone = done
+	coreInitMu.Unlock()
+
 	// Set up some component
 	go func() {
+		defer close(done)
 		defer device.DeferPanicToError("InitCore-go", func(err error) { log.Println(err) })
 		device.GoDebug(process)
 
