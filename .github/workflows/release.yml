@@ -48,6 +48,7 @@ jobs:
         with:
           path: |
             app/libs/libcore.aar
+            app/executableSo
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
       - name: Install Golang
         if: steps.cache.outputs.cache-hit != 'true'
@@ -76,6 +77,7 @@ jobs:
         with:
           path: |
             app/libs/libcore.aar
+            app/executableSo
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
       - name: Gradle cache
         uses: actions/cache@v4
@@ -139,6 +141,7 @@ jobs:
         with:
           path: |
             app/libs/libcore.aar
+            app/executableSo
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
       - name: Gradle cache
         uses: actions/cache@v4
@@ -156,7 +159,7 @@ jobs:
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           bash ./run init action gradle
           bash ./gradlew bundlePlayRelease
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: AAB
           path: app/build/outputs/bundle/playRelease/app-play-release.aab

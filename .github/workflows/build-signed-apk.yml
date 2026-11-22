@@ -91,15 +91,12 @@ jobs:
             app/libs/libcore.aar
             app/executableSo
           key: libcore-v2-${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
-          restore-keys: |
-            libcore-v2-
 
       - name: Build LibCore Native Core
         if: steps.cache-libcore.outputs.cache-hit != 'true'
         run: |
-          if [ ! -f app/libs/libcore.aar ] || [ ! -f app/executableSo/arm64-v8a/libsingbox.so ]; then
-            bash ./run lib core
-          fi
+          rm -rf app/libs/libcore.aar app/executableSo/*.so app/executableSo/*/*.so
+          bash ./run lib core
 
       - name: Restore Signing Keystore Cache
         id: cache-signing-keystore
