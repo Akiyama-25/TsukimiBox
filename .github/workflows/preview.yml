@@ -70,11 +70,6 @@ jobs:
             app/libs/libcore.aar
             app/executableSo
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
-      - name: Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.gradle
-          key: gradle-oss-${{ hashFiles('**/*.gradle.kts') }}
       - name: Gradle Build
         env:
           BUILD_PLUGIN: none

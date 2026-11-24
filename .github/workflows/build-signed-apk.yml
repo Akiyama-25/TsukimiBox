@@ -206,14 +206,6 @@ jobs:
         run: |
           bash ./run init action gradle
 
-      - name: Gradle Cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.gradle
-          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}
-          restore-keys: |
-            gradle-
-
       - name: Build Signed APK
         env:
           BUILD_PLUGIN: none
