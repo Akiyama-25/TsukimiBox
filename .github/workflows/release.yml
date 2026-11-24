@@ -189,6 +189,9 @@ jobs:
             "$HOME/.gradle/tmp" \
             "$HOME/.android/build-cache" \
             "$HOME/.cache/go-build" \
+            "${TMPDIR:-/tmp}"/go-build* \
+            "${TMPDIR:-/tmp}"/gradle* \
+            "${TMPDIR:-/tmp}"/kotlin* \
             "$RUNNER_TEMP/"* \
             /tmp/gradle* /tmp/kotlin* /tmp/sdk.log 2>/dev/null || true
           echo ">>> Disk usage after cleanup:"
