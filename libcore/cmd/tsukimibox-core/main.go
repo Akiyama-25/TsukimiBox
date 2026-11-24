@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	nethttp "net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	_ "unsafe"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -20,6 +23,7 @@ import (
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
 	"github.com/sagernet/sing-box/adapter/service"
+	"github.com/sagernet/sing-box/boxapi"
 	geosites "github.com/sagernet/sing-box/common/geosite"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/dns"
@@ -218,6 +222,8 @@ func main() {
 	workDir := fs.String("w", "", "working directory")
 	appUid := fs.Int("uid", -1, "android app uid for file ownership")
 	appGid := fs.Int("gid", -1, "android app gid for file ownership")
+	statsListen := fs.String("stats-listen", "", "loopback address for internal traffic stats HTTP server")
+	statsOutbounds := fs.String("stats-outbounds", "", "comma-separated outbound tags to track traffic stats")
 	if err := fs.Parse(args); err != nil {
 		log.Fatalf("parse flags: %v", err)
 	}
@@ -280,7 +286,65 @@ func main() {
 		log.Fatalf("create sing-box instance: %v", err)
 	}
 
+	var statsServer *nethttp.Server
+	if *statsListen != "" && *statsOutbounds != "" {
+		rawTags := strings.Split(*statsOutbounds, ",")
+		tags := make([]string, 0, len(rawTags))
+		seen := make(map[string]struct{}, len(rawTags))
+		for _, t := range rawTags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if _, ok := seen[t]; ok {
+				continue
+			}
+			seen[t] = struct{}{}
+			tags = append(tags, t)
+		}
+		if len(tags) > 0 {
+			v2api := boxapi.NewSbV2rayServer(option.V2RayStatsServiceOptions{
+				Enabled:   true,
+				Outbounds: tags,
+			})
+			instance.Router().AppendTracker(v2api.StatsService())
+
+			type tagTraffic struct {
+				Tx int64 `json:"tx"`
+				Rx int64 `json:"rx"`
+			}
+			mux := nethttp.NewServeMux()
+			mux.HandleFunc("/stats", func(w nethttp.ResponseWriter, r *nethttp.Request) {
+				res := make(map[string]tagTraffic, len(tags))
+				for _, tag := range tags {
+					tx := v2api.QueryStats(fmt.Sprintf("outbound>>>%s>>>traffic>>>uplink", tag))
+					rx := v2api.QueryStats(fmt.Sprintf("outbound>>>%s>>>traffic>>>downlink", tag))
+					res[tag] = tagTraffic{Tx: tx, Rx: rx}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(res)
+			})
+			ln, lnErr := net.Listen("tcp", *statsListen)
+			if lnErr != nil {
+				log.Printf("warning: failed to listen stats server on %s: %v", *statsListen, lnErr)
+			} else {
+				statsServer = &nethttp.Server{
+					Handler:           mux,
+					ReadHeaderTimeout: 2 * time.Second,
+				}
+				go func() {
+					if serveErr := statsServer.Serve(ln); serveErr != nil && serveErr != nethttp.ErrServerClosed {
+						log.Printf("stats server stopped: %v", serveErr)
+					}
+				}()
+			}
+		}
+	}
+
 	if err := instance.Start(); err != nil {
+		if statsServer != nil {
+			_ = statsServer.Close()
+		}
 		_ = instance.Close()
 		log.Fatalf("start sing-box instance: %v", err)
 	}
@@ -291,6 +355,9 @@ func main() {
 	log.Printf("received signal %v, shutting down sing-box root core...", sig)
 
 	cancel()
+	if statsServer != nil {
+		_ = statsServer.Close()
+	}
 	if err := instance.Close(); err != nil {
 		log.Printf("close sing-box instance: %v", err)
 	}

@@ -1540,9 +1540,18 @@ class ConfigurationFragment @JvmOverloads constructor(
 
                             if (update) {
                                 ProfileManager.postUpdate(lastSelected)
-                                if (DataStore.serviceState.canStop && reloadAccess.tryLock()) {
-                                    SagerNet.reloadService()
-                                    reloadAccess.unlock()
+                                val canStop = DataStore.serviceState.canStop || (
+                                    DataStore.serviceState == BaseService.State.Idle && runCatching {
+                                        val s = (activity as? MainActivity)?.connection?.service?.state
+                                        s != null && BaseService.State.values()[s].canStop
+                                    }.getOrDefault(false)
+                                )
+                                if (canStop && reloadAccess.tryLock()) {
+                                    try {
+                                        SagerNet.reloadService()
+                                    } finally {
+                                        reloadAccess.unlock()
+                                    }
                                 }
                             } else if (SagerNet.isTv) {
                                 if (DataStore.serviceState.started) {

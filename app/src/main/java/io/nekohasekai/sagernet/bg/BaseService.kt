@@ -104,13 +104,14 @@ class BaseService {
 
     class Binder(private var data: Data? = null) : ISagerNetService.Stub(), CoroutineScope,
         AutoCloseable {
+        val callbackIdMap = java.util.concurrent.ConcurrentHashMap<IBinder, Int>()
+
         private val callbacks = object : RemoteCallbackList<ISagerNetServiceCallback>() {
             override fun onCallbackDied(callback: ISagerNetServiceCallback?, cookie: Any?) {
                 super.onCallbackDied(callback, cookie)
+                callback?.asBinder()?.let { callbackIdMap.remove(it) }
             }
         }
-
-        val callbackIdMap = mutableMapOf<ISagerNetServiceCallback, Int>()
 
         override val coroutineContext = Dispatchers.Main.immediate + Job()
 
@@ -123,10 +124,11 @@ class BaseService {
                 Runtime.getRuntime().exit(0)
                 return
             }
-            if (!callbackIdMap.contains(cb)) {
+            val binder = cb.asBinder()
+            val isNew = callbackIdMap.put(binder, id) == null
+            if (isNew) {
                 callbacks.register(cb)
             }
-            callbackIdMap[cb] = id
         }
 
         private val broadcastMutex = Mutex()
@@ -149,7 +151,7 @@ class BaseService {
         }
 
         override fun unregisterCallback(cb: ISagerNetServiceCallback) {
-            callbackIdMap.remove(cb)
+            callbackIdMap.remove(cb.asBinder())
             callbacks.unregister(cb)
         }
 
@@ -222,6 +224,7 @@ class BaseService {
         fun reload() {
             if (DataStore.selectedProxy == 0L) {
                 stopRunner(false, (this as Context).getString(R.string.profile_empty))
+                return
             }
             if (canReloadSelector()) {
                 val ent = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)

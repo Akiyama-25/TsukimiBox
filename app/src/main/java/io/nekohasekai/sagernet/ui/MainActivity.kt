@@ -401,6 +401,7 @@ class MainActivity : ThemedActivity(),
 
     override fun onServiceDisconnected() = changeState(BaseService.State.Idle)
     override fun onBinderDied() {
+        if (isDestroyed || isFinishing) return
         connection.disconnect(this)
         connection.connect(this, this)
     }
@@ -450,8 +451,13 @@ class MainActivity : ThemedActivity(),
     }
 
     override fun onStart() {
-        connection.updateConnectionId(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
         super.onStart()
+        val liveState = connection.syncOrReconnect(
+            this, this, SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND
+        )
+        if (liveState != null && liveState != DataStore.serviceState) {
+            changeState(liveState)
+        }
     }
 
     override fun onStop() {

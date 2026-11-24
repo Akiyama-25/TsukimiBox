@@ -104,9 +104,18 @@ class TrafficLooper
             }
 
             if (trafficUpdater == null) {
-                if (!proxy.isInitialized()) continue
-                if (proxy.isRootDaemon || !proxy.hasInProcessBox()) return
+                if (!proxy.isInitialized()) {
+                    delay(delayMs)
+                    continue
+                }
+                val isRoot = proxy.isRootDaemon
+                if (isRoot) {
+                    if (proxy.activeStatsPort <= 0) return
+                } else if (!proxy.hasInProcessBox()) {
+                    return
+                }
                 idMap.clear()
+                tagMap.clear()
                 idMap[-1] = itemBypass
                 //
                 val tags = hashSetOf(TAG_PROXY, TAG_BYPASS)
@@ -130,10 +139,17 @@ class TrafficLooper
                     selectMain(proxy.config.mainEntId)
                 }
                 //
-                trafficUpdater = TrafficUpdater(
-                    box = proxy.box, items = idMap.values.toList()
-                )
-                proxy.box.setV2rayStats(tags.joinToString("\n"))
+                trafficUpdater = if (isRoot) {
+                    TrafficUpdater(
+                        rootStatsPort = proxy.activeStatsPort,
+                        items = idMap.values.toList()
+                    )
+                } else {
+                    proxy.box.setV2rayStats(tags.joinToString("\n"))
+                    TrafficUpdater(
+                        box = proxy.box, items = idMap.values.toList()
+                    )
+                }
             }
 
             val diffs = trafficUpdater.updateAll()
@@ -188,7 +204,7 @@ class TrafficLooper
                 && data.binder.callbackIdMap.containsValue(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
             ) {
                 data.binder.broadcast { b ->
-                    if (data.binder.callbackIdMap[b] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
+                    if (data.binder.callbackIdMap[b.asBinder()] == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND) {
                         b.cbSpeedUpdate(speed)
                         if (profileTrafficStatistics) {
                             idMap.forEach { (id, item) ->

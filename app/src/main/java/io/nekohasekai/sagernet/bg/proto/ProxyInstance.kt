@@ -10,6 +10,8 @@ import io.nekohasekai.sagernet.bg.ServiceNotification
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.fmt.LOCALHOST
+import io.nekohasekai.sagernet.fmt.TAG_BYPASS
+import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.mkPort
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
@@ -39,6 +41,9 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
 
     @Volatile
     var activeClashApiPort: Int = 0
+
+    @Volatile
+    var activeStatsPort: Int = 0
 
     private fun isTcpPortAvailable(host: String, port: Int): Boolean {
         return try {
@@ -171,6 +176,15 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
             }.absolutePath
             val myUid = android.os.Process.myUid()
             val suBin = RootRouteController.getSuBinary()
+            val statsPort = if (DataStore.speedInterval > 0) mkPort() else 0
+            activeStatsPort = statsPort
+            val statsOutbounds = if (statsPort > 0) {
+                val tags = linkedSetOf(TAG_PROXY, TAG_BYPASS)
+                tags.addAll(config.trafficMap.keys)
+                tags.joinToString(",")
+            } else {
+                ""
+            }
             val shellCmd = buildString {
                 append("echo \$\$ > '").append(pidFile.absolutePath).append("'; ")
                 append("exec '").append(singBoxBin.absolutePath).append("' run ")
@@ -179,17 +193,25 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
                 append("-w '").append(rootWorkDir).append("' ")
                 append("-uid ").append(myUid).append(' ')
                 append("-gid ").append(myUid)
+                if (statsPort > 0 && statsOutbounds.isNotEmpty()) {
+                    append(" -stats-listen '").append(LOCALHOST).append(':').append(statsPort).append("'")
+                    append(" -stats-outbounds '").append(statsOutbounds.replace("'", "")).append("'")
+                }
             }
 
             val ipv6Enabled = DataStore.ipv6Mode != IPv6Mode.DISABLE
             val tunMtu = DataStore.effectiveTunMtu
-            Logs.i("Starting root sing-box AutoRedirect core via $suBin (mixedPort=$activeMixedPort)")
+            Logs.i("Starting root sing-box AutoRedirect core via $suBin (mixedPort=$activeMixedPort, statsPort=$statsPort)")
             processes.start(
                 cmd = listOf(suBin, "-c", shellCmd),
                 onBeforeRestartCallback = {
                     RootRouteController.prepareRootEnvironment(ipv6Enabled, tunMtu)
                 }
             )
+            runOnDefaultDispatcher {
+                looper = service?.let { TrafficLooper(it.data, this) }
+                looper?.start()
+            }
             return
         }
 
